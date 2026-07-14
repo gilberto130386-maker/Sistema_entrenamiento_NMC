@@ -3557,6 +3557,15 @@ window.addEventListener('storage', ev => {
 
 function saveEmployeeData(){
   try {
+    // FUSIÓN, no reemplazo: leer el registro previo para NO perder los
+    // `overrides` (nombre, área, puesto, correo, etc.) que escribe
+    // _saveEmpOverride() al editar un empleado. Antes esta función
+    // reescribía la clave completa con solo {statuses, checks}, borrando
+    // los overrides → los cambios editados desaparecían en el siguiente
+    // load/refresh (auto-save del Analizador, checks de examen, sync).
+    let prev = {};
+    try { prev = JSON.parse(localStorage.getItem('nmc-employee-data')||'{}') || {}; } catch{}
+
     // Save only the overridden statuses (to keep it lightweight)
     // Clave = NÚMERO de empleado (estable ante reordenamientos del Excel)
     const statuses = {};
@@ -3569,6 +3578,8 @@ function saveEmployeeData(){
       checksByNum[_persistKey(e) || empId] = checksById[empId];
     });
     const data = {
+      // Conservar overrides existentes (los campos editados de cada empleado)
+      overrides: prev.overrides || {},
       statuses,
       checks: checksByNum
     };
