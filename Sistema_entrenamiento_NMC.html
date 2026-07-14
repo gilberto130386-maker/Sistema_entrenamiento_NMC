@@ -206,6 +206,14 @@
         style="display:flex;align-items:center;gap:.35rem;white-space:nowrap">
         ✉️ Enviar correo
       </button>
+      <!-- 📄 Constructor de reporte PDF -->
+      <button class="btn btn-s btn-sm" id="btn-emp-report"
+        onclick="openReportBuilder()"
+        title="Construir un reporte PDF personalizado del directorio"
+        style="display:flex;align-items:center;gap:.35rem;white-space:nowrap;
+               border-color:var(--accent);color:var(--accent)">
+        📄 Reporte PDF
+      </button>
       <!-- ➕ Alta de personal -->
       <button class="btn btn-s btn-sm" onclick="openAltaPanel()"
         title="Dar de alta nuevo empleado"
@@ -1313,6 +1321,123 @@
              font-family:var(--fb);font-size:.83rem;font-weight:700;cursor:pointer;
              transition:all .15s;display:flex;align-items:center;gap:.4rem">
       ✕ Confirmar Baja
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL — CONSTRUCTOR DE REPORTE PDF (DIRECTORIO)
+═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="report-modal" role="dialog" aria-modal="true" aria-label="Constructor de reporte PDF"
+     onclick="if(event.target.id==='report-modal')event.target.classList.remove('open')">
+<div class="modal" style="max-width:640px">
+  <div class="modal-hdr" style="border-bottom:1px solid var(--border);padding-bottom:1rem">
+    <div>
+      <div style="font-size:.7rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem">📄 Exportar a PDF</div>
+      <div class="modal-title">Constructor de Reporte</div>
+    </div>
+    <button class="modal-close" aria-label="Cerrar constructor de reporte" onclick="document.getElementById('report-modal').classList.remove('open')">✕</button>
+  </div>
+  <div class="modal-body">
+
+    <!-- Título del reporte -->
+    <div class="m-sec">
+      <label>Título del reporte</label>
+      <input id="rep-title" class="status-sel" type="text" maxlength="80"
+        value="Directorio de Empleados" placeholder="Título que aparece en el encabezado del PDF">
+    </div>
+
+    <!-- Filtros de selección -->
+    <div style="font-size:.7rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin:1.1rem 0 .6rem">1 · ¿Qué empleados incluir?</div>
+    <div class="m-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Área</label>
+        <select id="rep-area" class="status-sel" onchange="_repAreaChange();_repUpdateCount()"><option value="">Todas las áreas</option></select>
+      </div>
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Puesto</label>
+        <select id="rep-puesto" class="status-sel" onchange="_repUpdateCount()"><option value="">Todos los puestos</option></select>
+      </div>
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Estatus</label>
+        <select id="rep-status" class="status-sel" onchange="_repUpdateCount()">
+          <option value="">Todos los estatus</option>
+          <option>Aprobado</option><option>Pendiente</option>
+          <option value="__INACTIVOS__">🚫 Todos los inactivos</option>
+          <option>Inactivo</option><option>En Proceso</option><option>Suspendido</option>
+        </select>
+      </div>
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Knowledge Certification</label>
+        <select id="rep-cert" class="status-sel" onchange="_repUpdateCount()">
+          <option value="">Todas</option>
+          <option value="Aplica">✅ Aplica</option>
+          <option value="NA">— N/A</option>
+        </select>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--text2);cursor:pointer;margin-bottom:.4rem">
+      <input type="checkbox" id="rep-use-current" onchange="_repSyncFromDirectory()">
+      Usar el filtro actual del directorio
+    </label>
+    <div id="rep-count" style="font-size:.82rem;color:var(--accent);font-weight:600;padding:.55rem .8rem;background:var(--bg3);border:1px solid var(--border);border-radius:8px;margin-bottom:.4rem"></div>
+
+    <!-- Columnas -->
+    <div style="font-size:.7rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin:1.1rem 0 .6rem">2 · Columnas a incluir</div>
+    <div id="rep-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem .9rem">
+      <!-- Se llena dinámicamente en openReportBuilder() -->
+    </div>
+
+    <!-- Opciones de formato -->
+    <div style="font-size:.7rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin:1.1rem 0 .6rem">3 · Formato del documento</div>
+    <div class="m-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Orientación</label>
+        <select id="rep-orient" class="status-sel">
+          <option value="landscape">Horizontal</option>
+          <option value="portrait">Vertical</option>
+        </select>
+      </div>
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Tamaño</label>
+        <select id="rep-size" class="status-sel">
+          <option value="letter">Carta</option>
+          <option value="a4">A4</option>
+          <option value="a3">A3</option>
+        </select>
+      </div>
+      <div class="m-sec" style="margin-bottom:.6rem">
+        <label>Ordenar por</label>
+        <select id="rep-sort" class="status-sel">
+          <option value="nombre">Nombre</option>
+          <option value="numero">Número</option>
+          <option value="area">Área</option>
+          <option value="puesto">Puesto</option>
+          <option value="estatus">Estatus</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.45rem;margin-top:.3rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="rep-summary" checked> Incluir resumen (totales por estatus)
+      </label>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="rep-date" checked> Incluir fecha de generación
+      </label>
+    </div>
+  </div>
+  <div style="padding:1rem 1.4rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;background:var(--bg2)">
+    <button onclick="document.getElementById('report-modal').classList.remove('open')"
+      style="padding:.5rem 1.1rem;border-radius:7px;border:1.5px solid var(--border2);background:none;
+             color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:600;cursor:pointer">
+      Cancelar
+    </button>
+    <button onclick="generateEmpReport()"
+      style="padding:.5rem 1.3rem;border-radius:7px;border:none;background:var(--accent);color:#fff;
+             font-family:var(--fb);font-size:.83rem;font-weight:700;cursor:pointer;
+             display:flex;align-items:center;gap:.4rem">
+      📄 Generar PDF
     </button>
   </div>
 </div>

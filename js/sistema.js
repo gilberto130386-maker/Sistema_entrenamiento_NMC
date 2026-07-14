@@ -4383,3 +4383,193 @@ function showToast(msg, duration=3200){
   t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), duration);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// CONSTRUCTOR DE REPORTE PDF — Directorio de Empleados
+// Arma un PDF a la medida a partir de la lógica/datos disponibles:
+// filtros (área, puesto, estatus, certificación), columnas seleccionables,
+// orientación, tamaño, orden y resumen.
+// ═══════════════════════════════════════════════════════════════════
+
+// Columnas disponibles: [key, etiqueta, valor(e)]. El orden aquí es el orden
+// en que aparecen en el PDF; el usuario decide cuáles incluir con checkboxes.
+const REPORT_COLUMNS = [
+  { key:'numero',     label:'Número',                 def:true,  val:e=>e.numero||'' },
+  { key:'nombre',     label:'Nombre',                 def:true,  val:e=>fmtName(e.nombre) },
+  { key:'puesto',     label:'Puesto',                 def:true,  val:e=>e.puesto||'' },
+  { key:'area',       label:'Área',                   def:true,  val:e=>e.area||'' },
+  { key:'supervisor', label:'Supervisor',             def:false, val:e=>e.supervisor||'' },
+  { key:'email',      label:'Email',                  def:false, val:e=>(e.email&&e.email!=='No hay numero')?e.email:'' },
+  { key:'horario',    label:'Horario',                def:false, val:e=>e.horario||'' },
+  { key:'cert_cofc',  label:'Skill Assessment',       def:false, val:e=>e.cert_cofc||'' },
+  { key:'cert_examen',label:'Knowledge Cert.',        def:true,  val:e=>e.cert_examen||'' },
+  { key:'estatus',    label:'Estatus',                def:true,  val:e=>e.estatus||'' },
+  { key:'exams',      label:'Exámenes aplicables',    def:false, val:e=>String((e.exam_ids||[]).length) },
+];
+
+// Transliteración a ASCII: jsPDF (Helvetica) no soporta Unicode.
+function _repPdfText(s){
+  return String(s ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/Ñ/g,'N').replace(/ñ/g,'n')
+    .replace(/[“”]/g,'"').replace(/[‘’]/g,"'")
+    .replace(/–/g,'-').replace(/—/g,'-')
+    .replace(/[^\x20-\x7E]/g,'');
+}
+
+function openReportBuilder(){
+  // Poblar áreas (unión catálogo + empleados reales, igual que el alta)
+  const areaEl = document.getElementById('rep-area');
+  areaEl.innerHTML = '<option value="">Todas las áreas</option>';
+  const areas = [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort();
+  areas.forEach(a=>{ const o=document.createElement('option'); o.value=a; o.textContent=a; areaEl.appendChild(o); });
+  _repAreaChange();
+
+  // Reset filtros/opciones a valores por defecto
+  document.getElementById('rep-status').value='';
+  document.getElementById('rep-cert').value='';
+  document.getElementById('rep-use-current').checked=false;
+
+  // Construir checkboxes de columnas
+  const colsWrap=document.getElementById('rep-cols');
+  colsWrap.innerHTML=REPORT_COLUMNS.map(c=>
+    `<label style="display:flex;align-items:center;gap:.5rem;font-size:.78rem;color:var(--text2);cursor:pointer">
+       <input type="checkbox" class="rep-col-chk" value="${esc(c.key)}" ${c.def?'checked':''}> ${esc(c.label)}
+     </label>`).join('');
+
+  _repUpdateCount();
+  document.getElementById('report-modal').classList.add('open');
+}
+
+function _repAreaChange(){
+  const area=document.getElementById('rep-area').value;
+  const puestoEl=document.getElementById('rep-puesto');
+  puestoEl.innerHTML='<option value="">Todos los puestos</option>';
+  const src = area ? EMPLOYEES.filter(e=>e.area===area) : EMPLOYEES;
+  [...new Set(src.map(e=>e.puesto).filter(Boolean))].sort().forEach(p=>{
+    const o=document.createElement('option'); o.value=p; o.textContent=p; puestoEl.appendChild(o);
+  });
+}
+
+// Copia el filtro activo del directorio a los controles del modal.
+function _repSyncFromDirectory(){
+  const use=document.getElementById('rep-use-current').checked;
+  const ids=['rep-area','rep-puesto','rep-status','rep-cert'];
+  if(use){
+    document.getElementById('rep-area').value=document.getElementById('emp-area').value||'';
+    _repAreaChange();
+    document.getElementById('rep-puesto').value=document.getElementById('emp-puesto').value||'';
+    document.getElementById('rep-status').value=document.getElementById('emp-status').value||'';
+    document.getElementById('rep-cert').value=document.getElementById('emp-cert').value||'';
+    ids.forEach(id=>document.getElementById(id).disabled=true);
+  } else {
+    ids.forEach(id=>document.getElementById(id).disabled=false);
+  }
+  _repUpdateCount();
+}
+
+// Aplica los filtros del modal y devuelve la lista de empleados objetivo.
+function _repFilteredEmps(){
+  const area=document.getElementById('rep-area').value;
+  const puesto=document.getElementById('rep-puesto').value;
+  const status=document.getElementById('rep-status').value;
+  const cert=document.getElementById('rep-cert').value;
+  return EMPLOYEES.filter(e=>{
+    const mA=!area||e.area===area;
+    const mP=!puesto||e.puesto===puesto;
+    const mS=!status||(status==='__INACTIVOS__'?(e.estatus!=='Aprobado'&&e.estatus!=='Pendiente'):e.estatus===status);
+    const mC=!cert||(cert==='Aplica'?e.cert_examen==='Aplica':e.cert_examen!=='Aplica');
+    return mA&&mP&&mS&&mC;
+  });
+}
+
+function _repUpdateCount(){
+  const n=_repFilteredEmps().length;
+  const el=document.getElementById('rep-count');
+  el.textContent=`${n} empleado${n===1?'':'s'} coinciden con los filtros seleccionados`;
+}
+
+function generateEmpReport(){
+  const J=(window.jspdf&&window.jspdf.jsPDF)?window.jspdf.jsPDF:null;
+  if(!J){ alert('⚠️ No se pudo cargar la librería de PDF (requiere conexión a internet la primera vez).'); return; }
+
+  const emps=_repFilteredEmps();
+  if(!emps.length){ showToast('⚠️ No hay empleados que coincidan con los filtros'); return; }
+
+  // Columnas seleccionadas (respetando el orden de REPORT_COLUMNS)
+  const chosen=new Set([...document.querySelectorAll('.rep-col-chk:checked')].map(c=>c.value));
+  const cols=REPORT_COLUMNS.filter(c=>chosen.has(c.key));
+  if(!cols.length){ showToast('⚠️ Selecciona al menos una columna'); return; }
+
+  // Orden
+  const sortKey=document.getElementById('rep-sort').value;
+  const sorted=[...emps].sort((a,b)=>{
+    const va=String(sortKey==='nombre'?fmtName(a.nombre):(a[sortKey]||'')).toLowerCase();
+    const vb=String(sortKey==='nombre'?fmtName(b.nombre):(b[sortKey]||'')).toLowerCase();
+    if(sortKey==='numero') return (parseInt(a.numero)||0)-(parseInt(b.numero)||0);
+    return va<vb?-1:va>vb?1:0;
+  });
+
+  const orient=document.getElementById('rep-orient').value;
+  const size=document.getElementById('rep-size').value;
+  const title=document.getElementById('rep-title').value.trim()||'Directorio de Empleados';
+  const withSummary=document.getElementById('rep-summary').checked;
+  const withDate=document.getElementById('rep-date').checked;
+
+  const doc=new J({orientation:orient,unit:'pt',format:size});
+  const pageW=doc.internal.pageSize.getWidth();
+
+  // Encabezado
+  doc.setFontSize(15); doc.setTextColor(27,79,138);
+  doc.text(_repPdfText('Sistema de Entrenamiento NMC'),40,42);
+  doc.setFontSize(12); doc.setTextColor(40);
+  doc.text(_repPdfText(title),40,62);
+
+  let y=78;
+  doc.setFontSize(9); doc.setTextColor(90);
+  if(withDate){
+    doc.text(_repPdfText(`Generado: ${new Date().toLocaleString()}   ·   Registros: ${sorted.length}`),40,y);
+    y+=13;
+  }
+  // Descripción de filtros aplicados
+  const area=document.getElementById('rep-area').value;
+  const puesto=document.getElementById('rep-puesto').value;
+  const status=document.getElementById('rep-status').value;
+  const cert=document.getElementById('rep-cert').value;
+  const filtros=[
+    area?('Area: '+area):'Todas las areas',
+    puesto?('Puesto: '+puesto):null,
+    status?('Estatus: '+(status==='__INACTIVOS__'?'Inactivos':status)):null,
+    cert?('Knowledge Cert.: '+(cert==='Aplica'?'Aplica':'N/A')):null,
+  ].filter(Boolean).map(_repPdfText).join('   |   ');
+  doc.text(_repPdfText('Filtros: '+filtros),40,y); y+=13;
+
+  // Resumen por estatus (opcional)
+  if(withSummary){
+    const byStatus={};
+    sorted.forEach(e=>{ byStatus[e.estatus]=(byStatus[e.estatus]||0)+1; });
+    const resumen=Object.entries(byStatus).map(([k,v])=>`${_repPdfText(k)}: ${v}`).join('   ·   ');
+    doc.setTextColor(27,79,138);
+    doc.text(_repPdfText('Resumen — '+resumen),40,y); y+=13;
+  }
+
+  // Tabla
+  doc.autoTable({
+    startY:y+6,
+    head:[cols.map(c=>_repPdfText(c.label))],
+    body:sorted.map(e=>cols.map(c=>_repPdfText(c.val(e)))),
+    styles:{fontSize:7.5,cellPadding:3,overflow:'linebreak'},
+    headStyles:{fillColor:[27,79,138],textColor:255,fontSize:8},
+    alternateRowStyles:{fillColor:[237,242,249]},
+    margin:{left:40,right:40},
+    didDrawPage:d=>{
+      doc.setFontSize(8); doc.setTextColor(150);
+      doc.text(`Pagina ${doc.internal.getNumberOfPages()}`,d.settings.margin.left,doc.internal.pageSize.getHeight()-14);
+      doc.text(_repPdfText('Sistema de Entrenamiento NMC'),pageW-40,doc.internal.pageSize.getHeight()-14,{align:'right'});
+    }
+  });
+
+  const safeTitle=_repPdfText(title).replace(/[^\w\s-]/g,'').trim().replace(/\s+/g,'_')||'reporte';
+  doc.save(`${safeTitle}_${new Date().toISOString().slice(0,10)}.pdf`);
+  showToast('✅ Reporte PDF generado');
+}
