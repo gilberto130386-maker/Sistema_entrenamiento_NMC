@@ -1,0 +1,575 @@
+// ════════════════════════════════════════════════════════
+// SKILL MATRIX MODULE — basado en datos de Puestos × Exámenes
+// ════════════════════════════════════════════════════════
+(function(){
+
+  function smBuildAreaFilter(){
+    const sel = document.getElementById('sm-area-filter');
+    const current = sel.value;
+    const areas = (typeof ALL_AREAS!=='undefined' && ALL_AREAS.length)
+      ? ALL_AREAS.filter(a=>EMPLOYEES.some(e=>e.area===a))
+      : [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">Todas las áreas</option>';
+    areas.forEach(a=>{
+      const o = document.createElement('option');
+      o.value = a; o.textContent = a;
+      sel.appendChild(o);
+    });
+    sel.value = current;
+  }
+
+  function smGetCertFilter(){
+    return document.getElementById('sm-cert-filter').value;
+  }
+
+  function smFilterByCert(empList){
+    const cert = smGetCertFilter();
+    if(!cert) return empList;
+    if(cert==='skill')     return empList.filter(e=>e.cert_cofc==='Aplica');
+    if(cert==='knowledge') return empList.filter(e=>e.cert_examen==='Aplica');
+    return empList;
+  }
+
+  function smGetAreaData(area){
+    let emps = EMPLOYEES.filter(e=>e.area===area && e.nombre);
+    emps = smFilterByCert(emps);
+    if(!emps.length) return null;
+
+    const examIdSet = new Set(emps.flatMap(e=>e.exam_ids||[]));
+    const exams = EXAMS.filter(ex=>examIdSet.has(ex.id));
+    if(!exams.length) return null;
+
+    const puestos = [...new Set(emps.map(e=>e.puesto).filter(Boolean))].sort();
+
+    return {area, emps, exams, puestos};
+  }
+
+  function smRenderKPIs(datasets){
+    const el = document.getElementById('sm-kpis');
+    if(!datasets.length){ el.innerHTML=''; return; }
+
+    let totalEmps=0, totalExams=new Set(), totalAplica=0, totalAprobado=0, totalPendiente=0;
+    datasets.forEach(ds=>{
+      totalEmps += ds.emps.length;
+      ds.exams.forEach(ex=> totalExams.add(ex.id));
+      ds.emps.forEach(emp=>{
+        const checks = (window._examChecks && window._examChecks[emp.id]) || {};
+        (emp.exam_ids||[]).forEach(xid=>{
+          if(ds.exams.some(ex=>ex.id===xid)){
+            totalAplica++;
+            if(checks[xid]) totalAprobado++;
+            else totalPendiente++;
+          }
+        });
+      });
+    });
+
+    el.innerHTML = `
+      <div class="kpi" style="border-left:3px solid var(--accent)"><div class="kpi-lbl">Áreas</div><div class="kpi-val o">${datasets.length}</div></div>
+      <div class="kpi" style="border-left:3px solid var(--accent)"><div class="kpi-lbl">Empleados</div><div class="kpi-val o">${totalEmps}</div></div>
+      <div class="kpi" style="border-left:3px solid var(--accent)"><div class="kpi-lbl">Exámenes</div><div class="kpi-val o">${totalExams.size}</div></div>
+      <div class="kpi" style="border-left:3px solid var(--green)"><div class="kpi-lbl">Aprobados</div><div class="kpi-val g">${totalAprobado}</div><div class="kpi-sub">${totalAplica?Math.round(totalAprobado/totalAplica*100):0}% del total</div></div>
+      <div class="kpi" style="border-left:3px solid var(--yellow)"><div class="kpi-lbl">Pendientes</div><div class="kpi-val y">${totalPendiente}</div></div>
+    `;
+  }
+
+  function smRenderMatrix(){
+    smBuildAreaFilter();
+    const container = document.getElementById('sm-table-container');
+    const filter = document.getElementById('sm-area-filter').value;
+
+    if(!EMPLOYEES||!EMPLOYEES.length||!EXAMS||!EXAMS.length){
+      container.innerHTML='<p style="text-align:center;color:var(--text3);padding:2rem">Cargue primero el Excel maestro desde el menú principal</p>';
+      document.getElementById('sm-kpis').innerHTML='';
+      return;
+    }
+
+    const areas = filter ? [filter]
+      : (typeof ALL_AREAS!=='undefined' && ALL_AREAS.length ? ALL_AREAS : [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort())
+          .filter(a=>EMPLOYEES.some(e=>e.area===a && (e.exam_ids||[]).length));
+
+    const datasets = areas.map(a=>smGetAreaData(a)).filter(Boolean);
+
+    smRenderKPIs(datasets);
+
+    if(!datasets.length){
+      container.innerHTML='<p style="text-align:center;color:var(--text3);padding:2rem">No hay datos de empleados/exámenes para las áreas seleccionadas</p>';
+      return;
+    }
+
+    const certF = smGetCertFilter();
+    const certTag = certF==='skill' ? ' · SKILL ASSESSMENT' : certF==='knowledge' ? ' · Knowledge Certification' : '';
+
+    let html = '';
+    datasets.forEach(ds=>{
+      const aprArea = ds.emps.filter(e=>e.estatus==='Aprobado').length;
+      const pctArea = ds.emps.length ? Math.round(aprArea/ds.emps.length*100) : 0;
+
+      html += `<h3 style="font-family:var(--fh);font-size:.95rem;font-weight:700;color:var(--accent);margin:1.5rem 0 .5rem;display:flex;align-items:center;gap:.5rem">
+        📊 ${esc(ds.area)}${esc(certTag)}
+        <span style="font-size:.75rem;color:var(--text3);font-weight:400">${ds.emps.length} empleados · ${ds.exams.length} exámenes · ${pctArea}% aprobados</span>
+      </h3>`;
+      html += '<div class="sm-table-wrap"><table>';
+
+      // Header — two rows: category span + vertical exam names
+      html += '<thead>';
+      html += '<tr>';
+      html += '<th class="sm-th-fixed" style="left:0;min-width:30px" rowspan="2">#</th>';
+      html += '<th class="sm-th-fixed" style="left:30px;text-align:left" rowspan="2">No. Emp</th>';
+      html += '<th class="sm-th-fixed" style="left:85px;text-align:left" rowspan="2">Nombre / Name</th>';
+      html += '<th class="sm-th-fixed" style="left:140px;text-align:left" rowspan="2">Puesto / Title</th>';
+      html += '<th class="sm-th-fixed" rowspan="2">Estatus</th>';
+      if(ds.exams.length) html += `<th colspan="${ds.exams.length}" style="text-align:center;font-size:.72rem;letter-spacing:.03em">Procedimientos / Procedures</th>`;
+      html += '</tr><tr>';
+      ds.exams.forEach(ex=>{
+        html += `<th class="sm-th-vert" title="${esc(ex.id)}: ${esc(ex.tema)}">${esc(ex.tema)}</th>`;
+      });
+      html += '</tr></thead><tbody>';
+
+      // Employee rows
+      ds.emps.forEach((emp, ri)=>{
+        const empExamIds = new Set(emp.exam_ids||[]);
+        const checks = (window._examChecks && window._examChecks[emp.id]) || {};
+        html += '<tr>';
+        html += `<td class="sm-num">${ri+1}</td>`;
+        html += `<td class="sm-num">${esc(emp.numero)||''}</td>`;
+        html += `<td class="sm-name">${esc(emp.nombre)||''}</td>`;
+        html += `<td class="sm-title">${esc(emp.puesto)||''}</td>`;
+        const stCls = emp.estatus==='Aprobado'?'sm-cell-aprobado': emp.estatus==='Pendiente'?'sm-cell-pendiente':'sm-cell-empty';
+        html += `<td class="${stCls}" style="font-size:.65rem;white-space:nowrap">${esc(emp.estatus)||'—'}</td>`;
+        ds.exams.forEach(ex=>{
+          if(empExamIds.has(ex.id)){
+            if(checks[ex.id]){
+              html += `<td class="sm-cell-aprobado" title="${esc(ex.tema)} — Aprobado">✓</td>`;
+            } else {
+              html += `<td class="sm-cell-pendiente" title="${esc(ex.tema)} — Pendiente">X</td>`;
+            }
+          } else {
+            html += '<td class="sm-cell-empty"></td>';
+          }
+        });
+        html += '</tr>';
+      });
+
+      // Summary row: count per exam
+      html += '<tr class="sm-summary-row">';
+      html += '<td></td><td></td><td class="sm-name" style="background:var(--bg3)!important"><strong>Total Asignados</strong></td><td class="sm-title" style="background:var(--bg3)!important"></td><td></td>';
+      ds.exams.forEach(ex=>{
+        const count = ds.emps.filter(e=>(e.exam_ids||[]).includes(ex.id)).length;
+        html += `<td>${count}</td>`;
+      });
+      html += '</tr>';
+
+      // Aprobados per exam row (per-exam checks)
+      html += '<tr class="sm-summary-row">';
+      html += '<td></td><td></td><td class="sm-name" style="background:var(--bg3)!important"><strong>Aprobados</strong></td><td class="sm-title" style="background:var(--bg3)!important"></td><td></td>';
+      ds.exams.forEach(ex=>{
+        const count = ds.emps.filter(e=>{
+          if(!(e.exam_ids||[]).includes(ex.id)) return false;
+          const ch = (window._examChecks && window._examChecks[e.id]) || {};
+          return !!ch[ex.id];
+        }).length;
+        html += `<td style="color:var(--green)">${count}</td>`;
+      });
+      html += '</tr>';
+
+      html += '</tbody></table></div>';
+    });
+
+    container.innerHTML = html;
+    smAutofitVerticalHeaders(container);
+  }
+
+  // Autofit de encabezados verticales: si el nombre del examen no cabe en la
+  // altura objetivo, reduce el font-size del encabezado (por tabla) para
+  // acercarse a esa altura y fija la altura real necesaria — nunca recorta
+  // el texto, solo lo compacta cuando es posible.
+  function smAutofitVerticalHeaders(container){
+    const SM_VERT_TARGET_H = 220; // px — altura deseada del encabezado vertical
+    const SM_VERT_MIN_FONT = 6.5; // px — tamaño mínimo legible
+    container.querySelectorAll('table').forEach(table=>{
+      const ths = table.querySelectorAll('.sm-th-vert');
+      if(!ths.length) return;
+      ths.forEach(th=>{ th.style.fontSize=''; th.style.height=''; });
+      let maxH = 0;
+      ths.forEach(th=>{ if(th.scrollHeight>maxH) maxH=th.scrollHeight; });
+      if(maxH<=SM_VERT_TARGET_H) return;
+
+      const baseFontPx = parseFloat(getComputedStyle(ths[0]).fontSize) || 10.4;
+      const scale = SM_VERT_TARGET_H/maxH;
+      const newFontPx = Math.max(SM_VERT_MIN_FONT, baseFontPx*scale);
+      ths.forEach(th=>{ th.style.fontSize = newFontPx+'px'; });
+
+      let fittedH = 0;
+      ths.forEach(th=>{ if(th.scrollHeight>fittedH) fittedH=th.scrollHeight; });
+      ths.forEach(th=>{ th.style.height = fittedH+'px'; });
+    });
+  }
+
+  // ── PDF Generation (A3) ──
+  window.smGeneratePDF = function(){
+    const filter = document.getElementById('sm-area-filter').value;
+    if(!EMPLOYEES||!EMPLOYEES.length||!EXAMS||!EXAMS.length){
+      if(typeof showToast==='function') showToast('⚠️ No hay datos cargados'); return;
+    }
+    const areas = filter ? [filter]
+      : (typeof ALL_AREAS!=='undefined'&&ALL_AREAS.length? ALL_AREAS : [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort())
+          .filter(a=>EMPLOYEES.some(e=>e.area===a&&(e.exam_ids||[]).length));
+    const datasets = areas.map(a=>smGetAreaData(a)).filter(Boolean);
+    if(!datasets.length){ if(typeof showToast==='function') showToast('⚠️ No hay datos para generar PDF'); return; }
+    smBuildPDF(datasets);
+  };
+
+  window.smGenerateAllPDF = function(){
+    if(!EMPLOYEES||!EMPLOYEES.length||!EXAMS||!EXAMS.length){
+      if(typeof showToast==='function') showToast('⚠️ No hay datos cargados'); return;
+    }
+    const areas = (typeof ALL_AREAS!=='undefined'&&ALL_AREAS.length? ALL_AREAS : [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort())
+        .filter(a=>EMPLOYEES.some(e=>e.area===a&&(e.exam_ids||[]).length));
+    areas.forEach(area=>{
+      const ds = smGetAreaData(area);
+      if(ds) smBuildPDF([ds], area);
+    });
+  };
+
+  function smBuildPDF(datasets, filenameSuffix){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a3'});
+
+    // jsPDF Helvetica no soporta Unicode — transliterar a ASCII
+    function ascii(s){
+      return String(s ?? '')
+        .normalize('NFD').replace(/[̀-ͯ]/g,'')
+        .replace(/Ñ/g,'N').replace(/ñ/g,'n')
+        .replace(/[""]/g,'"').replace(/['']/g,"'")
+        .replace(/[–—]/g,'-')
+        .replace(/✓/g,'X')
+        .replace(/[^\x20-\x7E]/g,'');
+    }
+
+    // Grab NMC logo from header as base64 for PDF
+    const logoEl = document.getElementById('hdr-logo');
+    let logoSrc = null;
+    if(logoEl && logoEl.src && logoEl.src.startsWith('data:image')){
+      logoSrc = logoEl.src;
+    }
+
+    const certF = smGetCertFilter();
+    const certLabel = certF==='skill' ? 'SKILL ASSESSMENT' : certF==='knowledge' ? 'Knowledge Certification' : '';
+
+    datasets.forEach((ds, dsIdx)=>{
+      if(dsIdx > 0) doc.addPage('a3','landscape');
+      const firstPageOfDataset = doc.internal.getNumberOfPages();
+
+      // ── Autofit: measure longest name/title/numero ──
+      const pxPerMm = 0.28; // approx chars-to-mm at fontSize 5.5
+      let maxNumW = 4;
+      let maxNameW = 12;
+      let maxTitleW = 10;
+      ds.emps.forEach(emp=>{
+        const numL = ascii(emp.numero||'').length * pxPerMm * 5;
+        const nameL = ascii(emp.nombre||'').length * pxPerMm * 5.5;
+        const titleL = ascii(emp.puesto||'').length * pxPerMm * 5;
+        if(numL > maxNumW) maxNumW = numL;
+        if(nameL > maxNameW) maxNameW = nameL;
+        if(titleL > maxTitleW) maxTitleW = titleL;
+      });
+      const numW = Math.min(Math.max(maxNumW, 10), 18);
+      const nameW = Math.min(Math.max(maxNameW, 25), 55);
+      const titleW = Math.min(Math.max(maxTitleW, 20), 45);
+      const statusW = 14;
+
+      // ── Geometría de los encabezados verticales de examen ──
+      const fixedTotal = 7 + numW + nameW + titleW + statusW;
+      const marginL = 5;
+      const availW = 420 - marginL - 3;
+      const examColW = Math.min(8, Math.max(4, (availW - fixedTotal) / ds.exams.length));
+      const headerAreaTop = 30;
+      const procLabelH = 5;
+      const vertHeaderH = 100;
+      const tableStartY = headerAreaTop + procLabelH + vertHeaderH + 2;
+
+      const examStartX = marginL + fixedTotal;
+      const examTotalW = ds.exams.length * examColW;
+
+      // Dibuja el encabezado completo (barra de título, logo, leyenda y
+      // nombres de examen en vertical). Se llama en la primera página del
+      // área y se repite en cada página adicional que genere autoTable al
+      // paginar la tabla — de lo contrario esas páginas quedan sin encabezado.
+      function drawHeaderArt(){
+        // Title bar — 22mm de alto para no encimar
+        doc.setFillColor(27,79,138);
+        doc.rect(0, 0, 420, 22, 'F');
+
+        // Logo
+        let titleX = 10;
+        if(logoSrc){
+          try { doc.addImage(logoSrc, 'PNG', 5, 2, 25, 18); titleX = 26; } catch(e){}
+        }
+
+        doc.setTextColor(255,255,255);
+        doc.setFontSize(13);
+        doc.setFont(undefined,'bold');
+        doc.text('Matriz de Habilidades / Skills Matrix', 250, 8, {align:'right'});
+        doc.setFontSize(15);
+        doc.setFont(undefined,'normal');
+        doc.text(ascii(`Area: ${ds.area}`), 220, 14, {align:'right'});
+        doc.setFontSize(8);
+        if(certLabel) doc.text(ascii(`Tipo: ${certLabel}`), titleX, 9);
+        doc.text(ascii(`Empleados: ${ds.emps.length}  |  Examenes: ${ds.exams.length}`), 150, 14, {align:'right'});
+        doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')}`, 150, 19, {align:'right'});
+
+        // Legend — debajo de la caja titulo (Y=24)
+        doc.setFontSize(6.5);
+        doc.setTextColor(0,0,0);
+        const levels = [
+          {l:'OK = Aprobado', c:[200,230,201]},
+          {l:'X = Pendiente', c:[255,249,196]},
+          {l:'No aplica', c:[255,255,255]}
+        ];
+        let lx = 10;
+        levels.forEach(lev=>{
+          doc.setFillColor(...lev.c);
+          doc.rect(lx, 24, 5, 3.5, 'FD');
+          doc.text(lev.l, lx+6.5, 27);
+          lx += 30;
+        });
+
+        // Fondo azul de los títulos de columnas fijas — mismo alto total que
+        // el bloque de encabezados de examen (banner + área vertical), para
+        // que ambos grupos de títulos queden alineados a la misma altura.
+        const headerBlockH = procLabelH + vertHeaderH;
+        doc.setFillColor(27,79,138);
+        doc.rect(marginL, headerAreaTop, fixedTotal, headerBlockH, 'F');
+
+        // Títulos de columnas fijas, centrados verticalmente en ese bloque
+        doc.setFontSize(9);
+        doc.setFont(undefined,'bold');
+        doc.setTextColor(255,255,255);
+        const fixedCols = [
+          {label:'#', w:7},
+          {label:'No. Emp', w:numW},
+          {label:'Nombre / Name', w:nameW},
+          {label:'Puesto / Title', w:titleW},
+          {label:'Estatus', w:statusW}
+        ];
+        const fixedCenterY = headerAreaTop + headerBlockH/2 + 1.5;
+        let fx = marginL;
+        fixedCols.forEach(col=>{
+          doc.text(ascii(col.label), fx + col.w/2, fixedCenterY, {align:'center'});
+          fx += col.w;
+        });
+
+        // "Procedimientos / Procedures" horizontal label bar
+        doc.setFillColor(21,65,128);
+        doc.rect(examStartX, headerAreaTop, examTotalW, procLabelH, 'F');
+        doc.setFontSize(13);
+        doc.setFont(undefined,'bold');
+        doc.setTextColor(255,255,255);
+        doc.text('Procedimientos / Procedures', examStartX + examTotalW/2, headerAreaTop + 3.5, {align:'center'});
+
+        // Vertical header background
+        doc.setFillColor(27,79,138);
+        doc.rect(examStartX, headerAreaTop + procLabelH, examTotalW, vertHeaderH, 'F');
+
+        // Draw each exam name vertically
+        doc.setFontSize(9);
+        doc.setFont(undefined,'normal');
+        doc.setTextColor(255,255,255);
+        ds.exams.forEach((ex, ei)=>{
+          const x = examStartX + ei * examColW + examColW/2 + 1;
+          const y = headerAreaTop + procLabelH + vertHeaderH - 2;
+          const txt = ascii(ex.tema.length > 55 ? ex.tema.substring(0,53)+'..' : ex.tema);
+          doc.text(txt, x, y, {angle: 90});
+        });
+      }
+
+      // Dibuja el pie de página: espacio de firma del Gerente de Área
+      // (Nombre / Firma / Fecha) centrado, más el crédito y el número de
+      // página. Se llama en cada página (ver didDrawPage más abajo).
+      function drawFooterArt(){
+        const pageH = doc.internal.pageSize.getHeight();
+
+        const sigFieldW = 55;
+        const sigGap = 10;
+        const sigTotalW = sigFieldW*3 + sigGap*2;
+        const sigStartX = (420 - sigTotalW) / 2;
+        const sigLineY = pageH - 15;
+
+        doc.setFontSize(7);
+        doc.setFont(undefined,'bold');
+        doc.setTextColor(90,100,120);
+        doc.text('Gerente de Area', 210, sigLineY - 4, {align:'center'});
+
+        doc.setDrawColor(120,140,180);
+        doc.setLineWidth(0.2);
+        doc.setFontSize(6.5);
+        doc.setFont(undefined,'normal');
+        let sx = sigStartX;
+        ['Nombre', 'Firma', 'Fecha'].forEach(label=>{
+          doc.line(sx, sigLineY, sx + sigFieldW, sigLineY);
+          doc.text(label, sx + sigFieldW/2, sigLineY + 3.5, {align:'center'});
+          sx += sigFieldW + sigGap;
+        });
+
+        doc.setFontSize(6);
+        doc.setTextColor(120,140,180);
+        doc.text('NMC — Sistema de Control de Entrenamientos · Skill Matrix', 10, pageH - 4);
+        doc.text(`Pagina ${dsIdx+1} de ${datasets.length}`, 380, pageH - 4);
+      }
+
+      drawHeaderArt();
+
+      // Build table data — includes No. Emp column
+      const head = [['#', 'No. Emp', 'Nombre / Name', 'Puesto / Title', 'Estatus', ...ds.exams.map(()=>'')]];
+
+      const body = [];
+      ds.emps.forEach((emp, i)=>{
+        const empExamIds = new Set(emp.exam_ids||[]);
+        const checks = (window._examChecks && window._examChecks[emp.id]) || {};
+        body.push([
+          i+1,
+          ascii(emp.numero||''),
+          ascii(emp.nombre||''),
+          ascii(emp.puesto||''),
+          ascii(emp.estatus||'-'),
+          ...ds.exams.map(ex=>{
+            if(!empExamIds.has(ex.id)) return '';
+            return checks[ex.id] ? 'OK' : 'X';
+          })
+        ]);
+      });
+
+      // Summary rows
+      body.push([
+        '', '', 'Total Asignados', '', '',
+        ...ds.exams.map(ex=> String(ds.emps.filter(e=>(e.exam_ids||[]).includes(ex.id)).length))
+      ]);
+      body.push([
+        '', '', 'Aprobados', '', '',
+        ...ds.exams.map(ex=> String(ds.emps.filter(e=>{
+          if(!(e.exam_ids||[]).includes(ex.id)) return false;
+          const ch = (window._examChecks && window._examChecks[e.id]) || {};
+          return !!ch[ex.id];
+        }).length))
+      ]);
+
+      const totalDataRows = ds.emps.length;
+
+      // Dynamic column styles — autofit widths
+      const colStyles = {
+        0: {cellWidth: 7, halign:'center'},
+        1: {cellWidth: numW, halign:'center', fontSize: 5},
+        2: {cellWidth: nameW, halign:'left', overflow:'ellipsize'},
+        3: {cellWidth: titleW, halign:'left', overflow:'ellipsize', fontSize: 5},
+        4: {cellWidth: statusW, halign:'center', fontSize: 5}
+      };
+      ds.exams.forEach((_, ei)=>{
+        colStyles[5 + ei] = {cellWidth: examColW, halign:'center'};
+      });
+
+      doc.autoTable({
+        head,
+        body,
+        startY: tableStartY,
+        theme: 'grid',
+        styles: {
+          fontSize: 5.5,
+          cellPadding: 1.2,
+          lineWidth: 0.15,
+          lineColor: [180,191,218],
+          overflow: 'ellipsize',
+          halign: 'center',
+          valign: 'middle'
+        },
+        headStyles: {
+          fillColor: [27,79,138],
+          textColor: [27,79,138],
+          fontStyle: 'bold',
+          fontSize: 0.1,
+          halign: 'center',
+          cellPadding: 0.3,
+          minCellHeight: 1
+        },
+        columnStyles: colStyles,
+        didParseCell: function(data){
+          // Todos los títulos del head (fijos y de examen) ya se dibujaron a
+          // mano en drawHeaderArt() — el header real de autoTable se oculta
+          // por completo para no duplicarlos.
+          if(data.section==='head' && data.column.index >= 5){
+            data.cell.styles.fillColor = [27,79,138];
+            data.cell.styles.textColor = [27,79,138];
+            data.cell.styles.fontSize = 0.1;
+            data.cell.styles.minCellHeight = 1;
+            data.cell.styles.cellPadding = 0.3;
+          }
+          if(data.section==='body'){
+            const ri = data.row.index;
+            const ci = data.column.index;
+
+            // Estatus column (index 4)
+            if(ci === 4 && ri < totalDataRows){
+              const st = data.cell.raw;
+              if(st==='Aprobado'){ data.cell.styles.fillColor=[187,222,251]; data.cell.styles.textColor=[13,71,161]; data.cell.styles.fontStyle='bold'; }
+              else if(st==='Pendiente'){ data.cell.styles.fillColor=[255,249,196]; data.cell.styles.textColor=[245,127,23]; data.cell.styles.fontStyle='bold'; }
+            }
+            // Exam cells (index 5+)
+            if(ci >= 5 && ri < totalDataRows){
+              if(data.cell.raw === 'OK'){
+                data.cell.styles.fillColor = [200,230,201];
+                data.cell.styles.textColor = [46,125,50];
+                data.cell.styles.fontStyle = 'bold';
+              } else if(data.cell.raw === 'X'){
+                data.cell.styles.fillColor = [255,249,196];
+                data.cell.styles.textColor = [245,127,23];
+                data.cell.styles.fontStyle = 'bold';
+              }
+            }
+            // Summary rows
+            if(ri >= totalDataRows){
+              data.cell.styles.fillColor = [214,225,240];
+              data.cell.styles.fontStyle = 'bold';
+              if(ri === totalDataRows+1 && ci>=5){
+                const v = parseInt(data.cell.raw);
+                if(!isNaN(v) && v>0){ data.cell.styles.textColor=[46,125,50]; }
+              }
+            }
+          }
+        },
+        margin: {left: marginL, right:5, top: tableStartY},
+        tableWidth: 'auto',
+        didDrawPage: function(data){
+          // Cuando la tabla no cabe en una sola página, autoTable crea
+          // páginas nuevas — sin esto quedaban sin encabezado (en blanco).
+          if(data.pageNumber > firstPageOfDataset) drawHeaderArt();
+          drawFooterArt();
+        }
+      });
+    });
+
+    const suffix = filenameSuffix || (datasets.length===1 ? datasets[0].area : 'Todas_las_Areas');
+    const certSuffix = certLabel ? '_'+certLabel.replace(/\s+/g,'_') : '';
+    doc.save(`Skill_Matrix_${suffix.replace(/\s+/g,'_')}${certSuffix}_${new Date().toISOString().slice(0,10)}.pdf`);
+    if(typeof showToast==='function') showToast(ascii('PDF generado: ' + suffix + (certLabel?' ('+certLabel+')':'')));
+  }
+
+  window.smRenderMatrix = smRenderMatrix;
+
+  function smSyncLogo(){
+    const src = document.getElementById('hdr-logo');
+    const dst = document.getElementById('sm-logo');
+    if(src && dst && src.src){
+      dst.src = src.src;
+      dst.style.display = '';
+      const hdr = dst.closest('.sm-header');
+      if(hdr){ dst.style.maxHeight = hdr.offsetHeight + 'px'; }
+    }
+  }
+
+  // Auto-render when view is shown
+  const origShowView = window.showView;
+  window.showView = function(name){
+    origShowView(name);
+    if(name==='skillmatrix'){ smSyncLogo(); smRenderMatrix(); }
+  };
+})();
