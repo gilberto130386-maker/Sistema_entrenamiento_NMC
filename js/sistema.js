@@ -2390,9 +2390,14 @@ function openEmpEdit(id){
   const badge = document.getElementById('em2-badge');
   if(badge) badge.textContent = e._manual ? '✏️ Alta manual' : '📋 Registro Excel';
 
-  // Áreas y puestos disponibles
-  const empAreas   = [...new Set(EMPLOYEES.map(x=>x.area).filter(Boolean))].sort();
-  const empPuestos = (area) => [...new Set(EMPLOYEES.filter(x=>x.area===area).map(x=>x.puesto).filter(Boolean))].sort();
+  // Áreas y puestos disponibles — unión de empleados reales + catálogo (gestión)
+  const _catAreas = (typeof catalogAreas === 'function') ? catalogAreas() : [];
+  const empAreas   = [...new Set([...EMPLOYEES.map(x=>x.area).filter(Boolean), ..._catAreas])].sort();
+  const empPuestos = (area) => {
+    const catP = (typeof catalogPuestosForArea === 'function') ? catalogPuestosForArea(area) : [];
+    const empP = EMPLOYEES.filter(x=>x.area===area).map(x=>x.puesto).filter(Boolean);
+    return [...new Set([...empP, ...catP])].sort();
+  };
 
   const areaOpts = empAreas.map(a=>
     `<option value="${esc(a)}" ${e.area===a?'selected':''}>${esc(a)}</option>`).join('');
@@ -2518,7 +2523,9 @@ function openEmpEdit(id){
   function refreshPuestos(){
     const area = areaEl.value;
     const curP = puestoEl.value;
-    const newPuestos = [...new Set(EMPLOYEES.filter(x=>x.area===area).map(x=>x.puesto).filter(Boolean))].sort();
+    const catP = (typeof catalogPuestosForArea === 'function') ? catalogPuestosForArea(area) : [];
+    const empP = EMPLOYEES.filter(x=>x.area===area).map(x=>x.puesto).filter(Boolean);
+    const newPuestos = [...new Set([...catP, ...empP])].sort();
     puestoEl.innerHTML = newPuestos.map(p=>
       `<option value="${esc(p)}" ${p===curP?'selected':''}>${esc(p)}</option>`).join('');
     refreshExamPreview();
@@ -2526,7 +2533,7 @@ function openEmpEdit(id){
 
   function refreshExamPreview(){
     const puesto = puestoEl.value;
-    const ids = _getExamIdsForPuesto(puesto);
+    const ids = _getExamIdsForPuesto(puesto, areaEl.value);
     const cnt = document.getElementById('ee-exams-count');
     const prv = document.getElementById('ee-exams-preview');
     if(cnt) cnt.textContent = ids.length;
@@ -2581,8 +2588,8 @@ function saveEmpEdit(id){
   e.cert_cofc   = g('cert-cofc');
   e.cert_examen = g('cert-examen');
 
-  // If puesto changed, recalculate exam_ids
-  if(puestoChanged) e.exam_ids = _getExamIdsForPuesto(puesto);
+  // If puesto changed, recalculate exam_ids desde el catálogo
+  if(puestoChanged) e.exam_ids = _getExamIdsForPuesto(puesto, area);
 
   // Persist: overrides → nmc-employee-data.overrides
   _saveEmpOverride(e);
@@ -3793,9 +3800,17 @@ function _nextEmpNumero(){
   return String(n);
 }
 
-// Exam IDs para un puesto: copia de otro empleado con el mismo puesto
-// o búsqueda directa en ex.aplica como fallback
-function _getExamIdsForPuesto(puesto){
+// Exam IDs para un puesto.
+// Fuente de verdad (Fase 4): el catálogo de asignaciones de la capa de
+// gestión (PUESTOS + ASSIGNMENTS). Si el puesto existe en el catálogo,
+// sus exámenes son autoritativos (incluso si son 0). Solo si el puesto
+// NO está en el catálogo se recurre al comportamiento previo (copiar de
+// otro empleado del mismo puesto, o derivar de ex.aplica).
+function _getExamIdsForPuesto(puesto, area){
+  if(typeof examIdsForPuestoNameArea === 'function'){
+    const ids = examIdsForPuestoNameArea(puesto, area);
+    if(ids !== null) return [...new Set(ids)];   // catálogo autoritativo
+  }
   const ref = EMPLOYEES.find(e=>e.puesto===puesto&&(e.exam_ids||[]).length>0);
   if(ref) return [...new Set(ref.exam_ids)];
   return EXAMS.filter(ex=>ex.aplica.some(m=>
@@ -3816,11 +3831,13 @@ function openAltaPanel(){
   // Set today's date as default
   document.getElementById('alta-ingreso').value = new Date().toISOString().slice(0,10);
 
-  // Populate area dropdown from real employee areas
+  // Poblar áreas desde el CATÁLOGO (capa de gestión), en unión con las
+  // áreas reales de empleados, para incluir puestos/áreas recién creados.
   const areaEl = document.getElementById('alta-area');
   areaEl.innerHTML = '<option value="">— Seleccionar —</option>';
-  const empAreas = [...new Set(EMPLOYEES.filter(e=>!e._manual||e.puesto).map(e=>e.area).filter(Boolean))].sort();
-  empAreas.forEach(a=>{
+  const catAreas = (typeof catalogAreas === 'function') ? catalogAreas() : [];
+  const empAreas = [...new Set(EMPLOYEES.filter(e=>!e._manual||e.puesto).map(e=>e.area).filter(Boolean))];
+  [...new Set([...catAreas, ...empAreas])].sort().forEach(a=>{
     const o=document.createElement('option'); o.value=a; o.textContent=a; areaEl.appendChild(o);
   });
 
@@ -3837,9 +3854,10 @@ function _altaAreaChange(){
   puestoEl.innerHTML = '<option value="">— Seleccionar puesto —</option>';
   if(!area){ puestoEl.innerHTML='<option value="">— Seleccionar área primero —</option>'; _altaValidate(); return; }
 
-  const puestos = [...new Set(
-    EMPLOYEES.filter(e=>e.area===area&&e.puesto).map(e=>e.puesto)
-  )].sort();
+  // Puestos del CATÁLOGO para el área (unión con los de empleados reales)
+  const catP = (typeof catalogPuestosForArea === 'function') ? catalogPuestosForArea(area) : [];
+  const empP = EMPLOYEES.filter(e=>e.area===area&&e.puesto).map(e=>e.puesto);
+  const puestos = [...new Set([...catP, ...empP])].sort();
 
   puestos.forEach(p=>{
     const o=document.createElement('option'); o.value=p; o.textContent=p; puestoEl.appendChild(o);
@@ -3849,9 +3867,10 @@ function _altaAreaChange(){
 
 function _altaPuestoChange(){
   const puesto = document.getElementById('alta-puesto').value;
+  const area   = document.getElementById('alta-area').value;
   const prev = document.getElementById('alta-exams-preview');
   if(!puesto){ prev.style.display='none'; _altaValidate(); return; }
-  const ids = _getExamIdsForPuesto(puesto);
+  const ids = _getExamIdsForPuesto(puesto, area);
   document.getElementById('alta-exams-count').textContent = ids.length;
   prev.style.display = 'flex';
   _altaValidate();
@@ -3909,7 +3928,7 @@ function submitAlta(){
     estatus:     estatus,
     horario:     horario,
     ingreso:     ingreso,
-    exam_ids:    _getExamIdsForPuesto(puesto),
+    exam_ids:    _getExamIdsForPuesto(puesto, area),
     _manual:     true   // ← distingue de empleados del Excel
   };
 

@@ -134,6 +134,35 @@ function _syncExamAplica(examId){
     .map(p => ({ area:p.area, puesto:p.nombre }));
 }
 
+// ════════════════════════════════════════════════════════════════
+// API PÚBLICA para el alta/edición de empleados (Fase 4)
+// El catálogo (PUESTOS + ASSIGNMENTS) es la fuente de verdad: el alta
+// lee sus áreas, puestos y exámenes desde aquí, no derivándolos de
+// empleados existentes ni de ex.aplica.
+// ════════════════════════════════════════════════════════════════
+function catalogAreas(){
+  return [...new Set(PUESTOS.map(p => p.area).filter(Boolean))].sort();
+}
+function catalogPuestosForArea(area){
+  return [...new Set(PUESTOS.filter(p => p.area === area).map(p => p.nombre).filter(Boolean))].sort();
+}
+// Devuelve los examIds asignados a un puesto del catálogo.
+// - array (posiblemente vacío) si el puesto EXISTE en el catálogo
+// - null si el puesto NO está en el catálogo (para que el llamador
+//   distinga "sin asignaciones" de "desconocido" y use su fallback)
+function examIdsForPuestoNameArea(nombre, area){
+  if(!nombre) return null;
+  let p = area ? _findPuesto(area, nombre) : null;
+  if(!p){
+    const key = String(nombre).trim().toUpperCase();
+    p = PUESTOS.find(x => String(x.nombre).trim().toUpperCase() === key);
+  }
+  return p ? _examIdsForPuestoId(p.id) : null;
+}
+window.catalogAreas            = catalogAreas;
+window.catalogPuestosForArea   = catalogPuestosForArea;
+window.examIdsForPuestoNameArea = examIdsForPuestoNameArea;
+
 // Refresca las vistas del sistema principal cuando cambian los exámenes
 function _refreshSistemaViews(){
   try { if(typeof filtExams !== 'undefined') filtExams = [...EXAMS]; } catch(_){}
