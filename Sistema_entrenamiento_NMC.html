@@ -104,11 +104,14 @@
         ⟲ Restaurar datos originales
       </button>
       <div style="height:1px;background:var(--border);margin:0 .75rem"></div>
+      <div style="padding:.45rem 1rem .1rem;font-size:.62rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.09em">Importar (legado)</div>
+      <div style="padding:0 1rem .35rem;font-size:.66rem;color:var(--text3);line-height:1.35">Usa la pestaña <strong style="color:var(--accent)">🗂️ Gestión</strong> para dar de alta exámenes, crear puestos y asignar exámenes. La carga de Excel solo se conserva para migrar datos existentes.</div>
       <label for="fileInput"
-        style="width:100%;padding:.7rem 1rem;background:none;color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:.6rem;transition:background .15s"
+        title="Vía recomendada: pestaña Gestión. La carga de Excel se conserva únicamente para migrar/rescatar datos existentes."
+        style="width:100%;padding:.7rem 1rem;background:none;color:var(--text3);font-family:var(--fb);font-size:.83rem;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:.6rem;transition:background .15s"
         onclick="closeKebab()"
         onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background='none'">
-        ⬆ Cargar Excel
+        ⬆ Cargar Excel <span style="font-size:.62rem;opacity:.7">(legado)</span>
       </label>
       <div style="padding:.5rem .75rem;background:var(--bg3);border-top:1px solid var(--border);margin-top:.25rem">
         <button onclick="saveSettings()"
