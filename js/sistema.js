@@ -216,6 +216,7 @@ window.addEventListener('DOMContentLoaded', () => {
   loadDataset();      // ← restaura el dataset completo del Excel si existe
   _rebuildIndexes();  // ← índice puesto→examen del Excel (necesario antes de render)
   _loadExtraEmployees(); // ← empleados dados de alta manualmente
+  _applyDeletedFilter(); // ← excluye empleados eliminados del sistema
   loadEmployeeData();
 
   // 3. Build filter dropdowns, then render everything
@@ -3131,6 +3132,7 @@ function loadExcel(event){
         });
 
         EXAMS=newExams; EMPLOYEES=newEmps;
+        _applyDeletedFilter(); // respeta bajas "Eliminar del sistema" previas
         COL_META=Object.values(colMeta);
         ALL_EXAM_AREAS=[...new Set(Object.values(colMeta).map(m=>m.area).filter(Boolean))];
         ALL_AREAS=[...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))];
@@ -3675,6 +3677,35 @@ function _saveExtraEmployees(){
   try { localStorage.setItem('nmc-extra-employees', JSON.stringify(extras)); } catch(e){}
 }
 
+// ── Bajas "Eliminar del sistema" ──────────────────────────────────
+// Registro persistente de empleados eliminados por clave (número o id).
+// Permite que la eliminación sobreviva recargas y reimportaciones del
+// Excel: los empleados del Excel se reconstruyen desde el dataset, por lo
+// que sin este registro reaparecerían.
+function _loadDeletedKeys(){
+  try {
+    const raw = localStorage.getItem('nmc-deleted-employees');
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch(e){ return new Set(); }
+}
+
+function _saveDeletedKey(key){
+  if(!key) return;
+  const set = _loadDeletedKeys();
+  set.add(String(key));
+  try { localStorage.setItem('nmc-deleted-employees', JSON.stringify([...set])); } catch(e){}
+}
+
+// Quita de EMPLOYEES todo registro cuya clave figure como eliminada.
+// No afecta a los empleados de alta manual (viven en nmc-extra-employees
+// y su borrado se persiste ahí directamente).
+function _applyDeletedFilter(){
+  const set = _loadDeletedKeys();
+  if(!set.size) return;
+  EMPLOYEES = EMPLOYEES.filter(e => e._manual || !set.has(String(_persistKey(e))));
+}
+
 // ════════════════════════════════════════════════════════════════
 // PERSISTENCIA DEL DATASET COMPLETO (Excel cargado)
 // localStorage['nmc-dataset'] = snapshot de EXAMS + EMPLOYEES + metadatos
@@ -3905,20 +3936,17 @@ function openBajaConfirm(id){
      <span style="color:var(--text3);font-size:.8rem">${esc(e.puesto)} · ${esc(e.area)}</span><br>
      <span style="font-size:.78rem;color:var(--text3)">${esc(e.id)}</span>`;
 
-  // Opción eliminar: solo disponible si fue dado de alta manualmente
+  // Opción eliminar: disponible para cualquier empleado. El borrado se
+  // persiste (nmc-extra-employees para altas manuales; nmc-deleted-employees
+  // + dataset para los del Excel) de modo que no reaparezcan al recargar.
   const elimOpt = document.getElementById('baja-tipo-elim');
   const elimLbl = document.getElementById('baja-lbl-elim');
-  if(e._manual){
-    elimOpt.disabled = false;
-    elimLbl.style.opacity = '1';
-    elimLbl.style.cursor  = 'pointer';
-  } else {
-    elimOpt.disabled = true;
-    elimOpt.checked  = false;
-    document.getElementById('baja-tipo-inact').checked = true;
-    elimLbl.style.opacity = '.4';
-    elimLbl.style.cursor  = 'not-allowed';
-  }
+  elimOpt.disabled = false;
+  elimLbl.style.opacity = '1';
+  elimLbl.style.cursor  = 'pointer';
+  // Por seguridad, la opción por defecto siempre es la reversible (Inactivo)
+  document.getElementById('baja-tipo-inact').checked = true;
+  elimOpt.checked = false;
 
   _bajaTipoChange();
   document.getElementById('emp-modal').classList.remove('open'); // cierra modal empleado
@@ -3944,11 +3972,19 @@ function applyBaja(){
   const e    = EMPLOYEES.find(x=>x.id===id);
   if(!e){ document.getElementById('baja-modal').classList.remove('open'); return; }
 
-  if(tipo==='eliminar' && e._manual){
-    // Eliminar del array
+  if(tipo==='eliminar'){
+    // Eliminar del array en memoria
     const idx = EMPLOYEES.indexOf(e);
     if(idx>-1) EMPLOYEES.splice(idx,1);
-    _saveExtraEmployees();
+    if(e._manual){
+      // Alta manual: vive en nmc-extra-employees, basta regrabar
+      _saveExtraEmployees();
+    } else {
+      // Empleado del Excel: registrar la baja y regrabar el dataset para
+      // que la eliminación persista ante recargas y reimportaciones.
+      _saveDeletedKey(_persistKey(e));
+      try { saveDataset(); } catch(err){ console.warn('saveDataset baja:', err); }
+    }
     showToast(`🗑 ${e.nombre} eliminado del sistema`);
   } else {
     // Marcar como Inactivo (soft baja) — usa el mecanismo existente de statuses
