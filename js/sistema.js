@@ -3151,6 +3151,8 @@ function loadExcel(event){
         // AUTOSAVE: persiste el dataset COMPLETO + statuses en localStorage
         try { saveDataset(); } catch(e){ console.warn('saveDataset Excel:', e); }
         try { saveEmployeeData(); } catch(e){ console.warn('autosave Excel:', e); }
+        // Importación legado: incorpora puestos/asignaciones nuevos a la capa de gestión
+        try { if(typeof syncPuestosAfterImport === 'function') syncPuestosAfterImport(); } catch(e){ console.warn('syncPuestosAfterImport:', e); }
         showToast(`✅ Cargado: ${newExams.length} exámenes, ${newEmps.length} empleados`);
         if(typeof window._refreshMasterFromSistema === 'function'){
           try { window._refreshMasterFromSistema(EXAMS, EMPLOYEES); }

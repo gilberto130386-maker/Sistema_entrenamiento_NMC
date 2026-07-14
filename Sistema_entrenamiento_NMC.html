@@ -31,6 +31,7 @@
     <button class="nav-btn"        id="nav-dashboard" onclick="showView('dashboard')">📈 Dashboard</button>
     <button class="nav-btn" id="nav-analizador" onclick="showView('analizador')">🔎 Analizador</button>
     <button class="nav-btn" id="nav-skillmatrix" onclick="showView('skillmatrix')">🧩 Skill Matrix</button>
+    <button class="nav-btn" id="nav-gestion" onclick="showView('gestion')">🗂️ Gestión</button>
   </nav>
   <button id="btn-nav-arrange" title="Reordenar navegación"
     onclick="toggleNavArrange()"
@@ -251,7 +252,6 @@
         ⚙️ Ordenar tablero
       </button>
     </div>
-  </div>
   <!-- KPI Restore bar — shows when any KPI is hidden -->
   <div id="kpi-restore-bar">
     <span class="rp-lbl">KPIs ocultos:</span>
@@ -387,6 +387,12 @@
   </div>
 </div>
 <!-- /view-skillmatrix -->
+
+<!-- ══════ GESTIÓN VIEW (capa nueva: puestos + links de exámenes) ══════ -->
+<div class="view" id="view-gestion">
+  <div id="gestion-root"></div>
+</div>
+<!-- /view-gestion -->
 
 </div><!-- /main -->
 
@@ -961,6 +967,9 @@
 
 <script src="js/datos.js"></script>
 <script src="js/sistema.js"></script>
+
+<!-- ══ Capa de Gestión — Puestos, Links de Exámenes y Asignaciones ══ -->
+<script src="js/gestion.js"></script>
 
 <!-- ══ Analizador de Formularios — JavaScript ══ -->
 <script src="js/analizador.js"></script>
