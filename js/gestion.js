@@ -268,38 +268,50 @@ function gDeletePuesto(id){
 // ════════════════════════════════════════════════════════════════
 // RENDER — Vista Gestión (dos sub-paneles: Exámenes / Puestos)
 // ════════════════════════════════════════════════════════════════
-let _gestionTab = 'exams';
+let _gestionTab = 'exams';   // 'exams' | 'puestos' | 'asignaciones'
 function gestionTab(tab){ _gestionTab = tab; renderGestion(); }
 
 function renderGestion(){
   const root = document.getElementById('gestion-root');
   if(!root) return;
 
-  const isEx = _gestionTab === 'exams';
-  const qEl  = document.getElementById('g-q');
-  const q    = qEl ? qEl.value.toLowerCase() : '';
+  const tab = _gestionTab;
+  const qEl = document.getElementById('g-q');
+  const q   = qEl ? qEl.value.toLowerCase() : '';
+
+  const tabBtn = (key, label) =>
+    `<button class="btn ${tab===key?'btn-p':'btn-s'} btn-sm" onclick="gestionTab('${key}')">${label}</button>`;
+
+  let action = '';
+  if(tab==='exams')   action = `<button class="btn btn-p btn-sm" onclick="openExamEditor()">➕ Nuevo examen</button>`;
+  if(tab==='puestos') action = `<button class="btn btn-p btn-sm" onclick="openPuestoEditor()">➕ Nuevo puesto</button>`;
+
+  // La búsqueda aplica a exámenes y puestos; en asignaciones se usa el selector.
+  const showSearch = tab !== 'asignaciones';
 
   root.innerHTML = `
     <div class="sh">
       <h2 class="sh-title">Capa de <span>Gestión</span></h2>
       <div class="ctrls">
-        <div class="srch-wrap"><span class="srch-ico">🔍</span>
-          <input class="srch" id="g-q" placeholder="Buscar..." value="${esc(q)}" oninput="renderGestion()"></div>
-        ${isEx
-          ? `<button class="btn btn-p btn-sm" onclick="openExamEditor()">➕ Nuevo examen</button>`
-          : `<button class="btn btn-p btn-sm" onclick="openPuestoEditor()">➕ Nuevo puesto</button>`}
+        ${showSearch ? `<div class="srch-wrap"><span class="srch-ico">🔍</span>
+          <input class="srch" id="g-q" placeholder="Buscar..." value="${esc(q)}" oninput="renderGestion()"></div>` : ''}
+        ${action}
       </div>
     </div>
 
     <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
-      <button class="btn ${isEx?'btn-p':'btn-s'} btn-sm" onclick="gestionTab('exams')">🔗 Links de Exámenes (${EXAMS.length})</button>
-      <button class="btn ${!isEx?'btn-p':'btn-s'} btn-sm" onclick="gestionTab('puestos')">🧷 Puestos (${PUESTOS.length})</button>
+      ${tabBtn('exams',        `🔗 Links de Exámenes (${EXAMS.length})`)}
+      ${tabBtn('puestos',      `🧷 Puestos (${PUESTOS.length})`)}
+      ${tabBtn('asignaciones', `🔀 Asignaciones (${ASSIGNMENTS.length})`)}
     </div>
 
     <div id="g-body"></div>
   `;
 
-  document.getElementById('g-body').innerHTML = isEx ? _renderExamsTable(q) : _renderPuestosGrid(q);
+  const body = document.getElementById('g-body');
+  if(tab==='exams')        body.innerHTML = _renderExamsTable(q);
+  else if(tab==='puestos') body.innerHTML = _renderPuestosGrid(q);
+  else { body.innerHTML = _renderAsignaciones(); _renderAsgBody(); }
 }
 
 function _renderExamsTable(q){
@@ -314,7 +326,7 @@ function _renderExamsTable(q){
         <td><span class="id-chip">${esc(ex.id)}</span></td>
         <td style="max-width:320px">${esc(ex.tema)}${ex.edicion?`<div style="font-size:.68rem;color:var(--text3)">📄 ${esc(ex.edicion)}</div>`:''}</td>
         <td>${safeUrl(ex.url)?`<a href="${esc(safeUrl(ex.url))}" target="_blank" rel="noopener noreferrer" style="color:var(--accent);font-size:.75rem">🔗 Abrir</a>`:`<span style="color:var(--text3);font-size:.72rem">Sin link</span>`}</td>
-        <td style="text-align:center">${nP}</td>
+        <td style="text-align:center"><button class="btn btn-s btn-sm" title="Asignar a puestos" onclick="openAsgFor('exam','${esc(ex.id)}')">${nP} 🔀</button></td>
         <td>${sBadge(ex.estatus)}</td>
         <td style="white-space:nowrap">
           <button class="btn btn-s btn-sm" onclick="openExamEditor('${esc(ex.id)}')">✏️</button>
@@ -349,10 +361,184 @@ function _renderPuestosGrid(q){
                 <button class="btn btn-s btn-sm" onclick="gDeletePuesto('${esc(p.id)}')">🗑️</button>
               </div>
             </div>
+            <button class="btn btn-s btn-sm" style="width:100%;margin-top:.6rem" onclick="openAsgFor('puesto','${esc(p.id)}')">🔀 Asignar exámenes</button>
           </div>`;
         }).join('')}
       </div>
     </div>`).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// ASIGNACIONES (Fase 3) — asignar/quitar exámenes a puestos
+// ----------------------------------------------------------------
+// Escribe en ASSIGNMENTS (modelo normalizado), mantiene ex.aplica en
+// sincronía (puente de compatibilidad) y PROPAGA el cambio a los
+// exam_ids de los empleados del puesto, de modo que el detalle de
+// examen, los KPIs y la matriz reflejen la asignación de inmediato.
+// ════════════════════════════════════════════════════════════════
+let _asgMode  = 'puesto';   // 'puesto' | 'exam'
+let _asgSelId = '';
+
+function asgSetMode(mode){ _asgMode = mode; _asgSelId = ''; renderGestion(); }
+function asgSelect(id){ _asgSelId = id; _renderAsgBody(); }
+function openAsgFor(mode, id){ _asgMode = mode; _asgSelId = id; _gestionTab = 'asignaciones'; renderGestion(); }
+
+function _renderAsignaciones(){
+  const byPuesto = _asgMode === 'puesto';
+  // Selector de entidad
+  let selector = '';
+  if(byPuesto){
+    const byArea = {};
+    PUESTOS.forEach(p => { (byArea[p.area||'Sin área'] = byArea[p.area||'Sin área'] || []).push(p); });
+    const opts = Object.entries(byArea).sort((a,b)=>a[0].localeCompare(b[0])).map(([area, ps]) =>
+      `<optgroup label="${esc(area)}">` +
+      ps.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p =>
+        `<option value="${esc(p.id)}" ${p.id===_asgSelId?'selected':''}>${esc(p.nombre)} (${_examIdsForPuestoId(p.id).length})</option>`).join('') +
+      `</optgroup>`).join('');
+    selector = `<select class="flt" style="min-width:340px" onchange="asgSelect(this.value)">
+      <option value="">— Selecciona un puesto —</option>${opts}</select>`;
+  } else {
+    const opts = EXAMS.slice().sort((a,b)=>a.id.localeCompare(b.id)).map(ex =>
+      `<option value="${esc(ex.id)}" ${ex.id===_asgSelId?'selected':''}>${esc(ex.id)} · ${esc(ex.tema)} (${_puestoIdsForExam(ex.id).length})</option>`).join('');
+    selector = `<select class="flt" style="min-width:340px" onchange="asgSelect(this.value)">
+      <option value="">— Selecciona un examen —</option>${opts}</select>`;
+  }
+
+  return `
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:1rem 1.1rem;margin-bottom:1.1rem">
+      <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
+        <span style="font-size:.75rem;color:var(--text3);font-weight:600">Ver por:</span>
+        <button class="btn ${byPuesto?'btn-p':'btn-s'} btn-sm" onclick="asgSetMode('puesto')">🧷 Puesto → exámenes</button>
+        <button class="btn ${!byPuesto?'btn-p':'btn-s'} btn-sm" onclick="asgSetMode('exam')">🔗 Examen → puestos</button>
+        <span style="flex:1"></span>
+        ${selector}
+      </div>
+    </div>
+    <div id="g-asg-body"></div>`;
+}
+
+// El cuerpo (checklist) se renderiza aparte para poder refrescarlo sin
+// perder el foco/scroll del selector.
+function _renderAsgBody(){
+  const host = document.getElementById('g-asg-body');
+  if(!host) return;
+  const byPuesto = _asgMode === 'puesto';
+
+  if(!_asgSelId){
+    host.innerHTML = `<div class="empty"><div class="empty-icon">🔀</div><div>Selecciona un ${byPuesto?'puesto':'examen'} para asignar o quitar ${byPuesto?'exámenes':'puestos'}</div></div>`;
+    return;
+  }
+
+  if(byPuesto){
+    const p = PUESTOS.find(x => x.id === _asgSelId);
+    if(!p){ host.innerHTML = `<div class="empty"><div>Puesto no encontrado</div></div>`; return; }
+    const assigned = new Set(_examIdsForPuestoId(p.id));
+    const rows = EXAMS.slice().sort((a,b)=>a.id.localeCompare(b.id)).map(ex => _asgRow(ex.id, `${ex.id} · ${ex.tema}`, ex.edicion, assigned.has(ex.id))).join('');
+    host.innerHTML = _asgPanel(`${esc(p.nombre)} <span style="color:var(--text3);font-weight:400">· ${esc(p.area)}</span>`, assigned.size, EXAMS.length, 'examen(es)', rows);
+  } else {
+    const ex = EXAMS.find(e => e.id === _asgSelId);
+    if(!ex){ host.innerHTML = `<div class="empty"><div>Examen no encontrado</div></div>`; return; }
+    const assigned = new Set(_puestoIdsForExam(ex.id));
+    // Puestos agrupados por área
+    const byArea = {};
+    PUESTOS.forEach(p => { (byArea[p.area||'Sin área'] = byArea[p.area||'Sin área'] || []).push(p); });
+    const rows = Object.entries(byArea).sort((a,b)=>a[0].localeCompare(b[0])).map(([area, ps]) =>
+      `<div style="font-size:.68rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin:.7rem 0 .35rem">${esc(area)}</div>` +
+      ps.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p => _asgRow(p.id, p.nombre, '', assigned.has(p.id))).join('')
+    ).join('');
+    host.innerHTML = _asgPanel(`${esc(ex.id)} · ${esc(ex.tema)}`, assigned.size, PUESTOS.length, 'puesto(s)', rows);
+  }
+}
+
+function _asgPanel(title, count, total, unit, rows){
+  return `
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin-bottom:.6rem">
+      <div style="font-size:.9rem;font-weight:600">${title}
+        <span style="color:var(--text3);font-size:.75rem;font-weight:400">· <strong id="g-asg-count">${count}</strong>/${total} ${unit}</span></div>
+      <div style="display:flex;gap:.4rem">
+        <button class="btn btn-s btn-sm" onclick="asgBulk(true)">✓ Marcar todos</button>
+        <button class="btn btn-s btn-sm" onclick="asgBulk(false)">✕ Quitar todos</button>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="max-height:60vh;overflow-y:auto;padding:.4rem .8rem">${rows}</div>`;
+}
+
+function _asgRow(id, label, sub, checked){
+  return `
+    <label style="display:flex;align-items:center;gap:.7rem;padding:.5rem .2rem;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" ${checked?'checked':''} onchange="toggleAsg('${esc(id)}',this.checked)"
+        style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
+      <span style="min-width:0">
+        <span style="font-size:.82rem;line-height:1.3">${esc(label)}</span>
+        ${sub?`<span style="font-size:.68rem;color:var(--text3);display:block">📄 ${esc(sub)}</span>`:''}
+      </span>
+    </label>`;
+}
+
+// ── Mutación de una asignación (dato puro, sin persistir/refrescar) ──
+// Devuelve el examId afectado (para sincronizar ex.aplica una sola vez).
+function _mutateAssignment(puestoId, examId, on){
+  if(on) assignExam(puestoId, examId); else unassignExam(puestoId, examId);
+  _applyAssignmentToEmployees(puestoId, examId, on);
+  return examId;
+}
+
+// Propaga la asignación a los exam_ids de los empleados del puesto, para
+// que la cobertura (detalle de examen / KPIs / matriz) sea consistente.
+function _applyAssignmentToEmployees(puestoId, examId, on){
+  const p = PUESTOS.find(x => x.id === puestoId);
+  if(!p || typeof EMPLOYEES === 'undefined') return;
+  const key = _puestoKey(p.area, p.nombre);
+  EMPLOYEES.forEach(e => {
+    if(_puestoKey(e.area, e.puesto) !== key) return;
+    const ids = new Set(e.exam_ids || []);
+    if(on) ids.add(examId); else ids.delete(examId);
+    e.exam_ids = [...ids];
+  });
+}
+
+// ── Commit: sincroniza ex.aplica, reconstruye índices, persiste y refresca
+function _commitAssignments(examIds){
+  [...new Set(examIds)].forEach(_syncExamAplica);
+  try { _rebuildIndexes(); } catch(_){}
+  savePuestos();
+  try { if(typeof saveDataset === 'function') saveDataset(); } catch(_){}
+  try { if(typeof _saveExtraEmployees === 'function') _saveExtraEmployees(); } catch(_){}
+  try { buildAreaPuestoFilters(); } catch(_){}
+  try { refreshAllKPIs(); } catch(_){}
+  try { if(typeof filtExams !== 'undefined') filtExams = [...EXAMS]; filterExams(); } catch(_){}
+  try { renderEmps(); } catch(_){}
+  try { renderMatrix(); } catch(_){}
+}
+
+// Toggle de una casilla (un puesto × un examen)
+function toggleAsg(id, checked){
+  let puestoId, examId;
+  if(_asgMode === 'puesto'){ puestoId = _asgSelId; examId = id; }
+  else                     { puestoId = id;       examId = _asgSelId; }
+  _mutateAssignment(puestoId, examId, checked);
+  _commitAssignments([examId]);
+  // Actualiza contador in-place sin re-render (mantiene scroll)
+  const cnt = document.getElementById('g-asg-count');
+  if(cnt){
+    const n = _asgMode === 'puesto' ? _examIdsForPuestoId(_asgSelId).length : _puestoIdsForExam(_asgSelId).length;
+    cnt.textContent = n;
+  }
+}
+
+// Marcar / quitar todos para la selección actual
+function asgBulk(on){
+  if(!_asgSelId) return;
+  const affected = [];
+  if(_asgMode === 'puesto'){
+    EXAMS.forEach(ex => { affected.push(_mutateAssignment(_asgSelId, ex.id, on)); });
+  } else {
+    PUESTOS.forEach(p => { _mutateAssignment(p.id, _asgSelId, on); });
+    affected.push(_asgSelId);
+  }
+  _commitAssignments(affected);
+  _renderAsgBody();
+  showToast(on ? '✓ Asignados todos' : '✕ Quitados todos');
 }
 
 // ════════════════════════════════════════════════════════════════
