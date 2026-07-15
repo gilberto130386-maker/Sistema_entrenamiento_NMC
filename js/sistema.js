@@ -1798,7 +1798,7 @@ function renderEmps(){
     cont.innerHTML=`<div class="emp-grid">${page.map(e=>empCard(e)).join('')}</div>`;
   } else {
     cont.innerHTML=`<div class="tbl-wrap"><table>
-      <thead><tr><th>#</th><th>Nombre</th><th>Puesto</th><th>Área</th><th>SKILL ASSESSMENT</th><th>Knowledge Certification</th><th>Estatus</th></tr></thead>
+      <thead><tr><th>#</th><th>Nombre</th><th>Puesto</th><th>Área</th><th>SKILL ASSESSMENT</th><th>Knowledge Certification</th><th>Estatus</th><th>Exámenes</th></tr></thead>
       <tbody>
       ${page.map(e=>{
         const examsCubiertos=(e.exam_ids||[]).length;
@@ -1812,6 +1812,14 @@ function renderEmps(){
           <td><span class="badge ${e.cert_cofc==='Aplica'?'b-g':'b-x'}">${esc(e.cert_cofc)||'—'}</span></td>
           <td><span class="badge ${e.cert_examen==='Aplica'?'b-g':'b-x'}">${esc(e.cert_examen)||'—'}</span></td>
           <td>${sBadge(e.estatus)}</td>
+          <td>${(()=>{
+            const myExams=getEmpExams(e);
+            const ch=_getChecks(e.id);
+            const done=myExams.filter(ex=>ch[ex.id]).length;
+            const tot=myExams.length;
+            const col=tot&&done===tot?'var(--green)':(done>0?'var(--accent)':'var(--text3)');
+            return `<span style="font-size:.74rem;font-weight:600;color:${col};white-space:nowrap">${done} / ${tot} completados</span>`;
+          })()}</td>
         </tr>`;
       }).join('')}
       </tbody>
