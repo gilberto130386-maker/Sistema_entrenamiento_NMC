@@ -384,6 +384,16 @@
         .replace(/[^\x20-\x7E]/g,'');
     }
 
+    // Símbolo de celda seguro para PDF: si el símbolo configurado (ej. viñetas,
+    // emojis) desaparece por completo al transliterar a ASCII, la celda queda
+    // vacía sin avisar — se usa un respaldo legible en su lugar para que la
+    // información siga pintándose (el color de fondo ya distingue el estado).
+    function pdfSafeSymbol(raw, fallback){
+      const a = ascii(raw);
+      if(a.trim()==='' && String(raw||'').trim()!=='') return fallback;
+      return a;
+    }
+
     // Grab NMC logo from header as base64 for PDF
     const logoEl = document.getElementById('hdr-logo');
     let logoSrc = null;
@@ -479,7 +489,7 @@
         doc.setDrawColor(0,0,0);
         doc.setLineWidth(0.1);
         let lx = 10;
-        cfg.legend.forEach(item=>{
+        cfg.legend.forEach((item, li)=>{
           doc.setFillColor(...smHexToRgb(item.color));
           let textX;
           if(cfg.legendShape==='circle'){
@@ -493,7 +503,7 @@
             doc.rect(lx, 24, 5, 3.5, 'FD');
             textX = lx + 5 + 1.5;
           }
-          const label = ascii(item.label);
+          const label = pdfSafeSymbol(item.label, SM_PDF_CONFIG_DEFAULT.legend[li].label);
           doc.text(label, textX, 27);
           lx = textX + doc.getTextWidth(label) + 6;
         });
@@ -595,9 +605,9 @@
         const checks = (window._examChecks && window._examChecks[emp.id]) || {};
         const kinds = [];
         const examTexts = ds.exams.map(ex=>{
-          if(!empExamIds.has(ex.id)){ kinds.push('na'); return ascii(cfg.legend[2].symbol); }
-          if(checks[ex.id]){ kinds.push('ok'); return ascii(cfg.legend[0].symbol); }
-          kinds.push('pending'); return ascii(cfg.legend[1].symbol);
+          if(!empExamIds.has(ex.id)){ kinds.push('na'); return pdfSafeSymbol(cfg.legend[2].symbol, ''); }
+          if(checks[ex.id]){ kinds.push('ok'); return pdfSafeSymbol(cfg.legend[0].symbol, 'OK'); }
+          kinds.push('pending'); return pdfSafeSymbol(cfg.legend[1].symbol, 'X');
         });
         examCellKind.push(kinds);
         body.push([
