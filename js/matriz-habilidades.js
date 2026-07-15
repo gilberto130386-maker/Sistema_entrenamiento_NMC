@@ -399,7 +399,6 @@
 
     datasets.forEach((ds, dsIdx)=>{
       if(dsIdx > 0) doc.addPage('a3','landscape');
-      const firstPageOfDataset = doc.internal.getNumberOfPages();
 
       // ── Autofit: measure longest name/title/numero ──
       const pxPerMm = 0.28; // approx chars-to-mm at fontSize 5.5
@@ -471,9 +470,14 @@
         doc.setFontSize(7);
         doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')}`, aX, 20.5, {align: cfg.textAlign});
 
-        // Legend — debajo de la caja titulo (Y=24), forma y colores configurables
+        // Legend — debajo de la caja titulo (Y=24), forma y colores configurables.
+        // El rect plano (forma "square") usa doc.rect() en vez de roundedRect con
+        // radio casi cero: algunos motores de impresión/PDF fallan al rasterizar
+        // curvas Bézier degeneradas y la caja terminaba sin imprimirse.
         doc.setFontSize(6.5);
         doc.setTextColor(0,0,0);
+        doc.setDrawColor(0,0,0);
+        doc.setLineWidth(0.1);
         let lx = 10;
         cfg.legend.forEach(item=>{
           doc.setFillColor(...smHexToRgb(item.color));
@@ -482,9 +486,11 @@
             const r = 1.9;
             doc.circle(lx+r, 25.75, r, 'FD');
             textX = lx + 2*r + 1.5;
+          } else if(cfg.legendShape==='rounded'){
+            doc.roundedRect(lx, 24, 5, 3.5, 1, 1, 'FD');
+            textX = lx + 5 + 1.5;
           } else {
-            const ry = cfg.legendShape==='rounded' ? 1 : 0.3;
-            doc.roundedRect(lx, 24, 5, 3.5, ry, ry, 'FD');
+            doc.rect(lx, 24, 5, 3.5, 'FD');
             textX = lx + 5 + 1.5;
           }
           const label = ascii(item.label);
@@ -712,7 +718,11 @@
         didDrawPage: function(data){
           // Cuando la tabla no cabe en una sola página, autoTable crea
           // páginas nuevas — sin esto quedaban sin encabezado (en blanco).
-          if(data.pageNumber > firstPageOfDataset) drawHeaderArt();
+          // data.pageNumber es relativo a ESTE autoTable() (siempre arranca en 1,
+          // incluso en el 2do+ dataset de un PDF combinado) — NO es el número de
+          // página absoluto del documento, por eso se compara contra 1 y no
+          // contra el conteo de páginas del doc.
+          if(data.pageNumber > 1) drawHeaderArt();
           drawFooterArt();
         }
       });
