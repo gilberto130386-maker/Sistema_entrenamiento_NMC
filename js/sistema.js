@@ -2399,16 +2399,24 @@ function generateCertificate(id){
 // VENTANA DE IMPRESIÓN DE CERTIFICADOS — individual o masiva
 // (empleados con estatus Aprobado)
 // ════════════════════════════════════════════════════════════════
-function _buildCertificatesDoc(emps){
+
+// Abre el diálogo de impresión del navegador para UN empleado y descarga
+// su PDF, igual que el botón "Generar Certificado PDF".
+function _printOneCertificate(e){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
-  emps.forEach((e, i) => _renderCertificatePages(doc, e, {addPageBefore: i > 0}));
-  return doc;
+  _renderCertificatePages(doc, e, {addPageBefore:false});
+
+  doc.autoPrint();
+  const url = doc.output('bloburl');
+  const win = window.open(url, '_blank');
+  if(!win) showToast(`⚠️ El navegador bloqueó la ventana de impresión de ${fmtName(e.nombre)}. Habilita las ventanas emergentes.`);
+
+  doc.save(_certFileName(e));
 }
 
-// Abre el diálogo de impresión del navegador con los certificados indicados
-// (un solo empleado = impresión individual; varios = impresión masiva) y
-// descarga el PDF, igual que el botón "Generar Certificado PDF".
+// Imprime y descarga los certificados indicados como archivos separados
+// (un solo id = impresión individual; varios ids = cada uno por su cuenta).
 function printCertificates(ids){
   if(!(window.jspdf && window.jspdf.jsPDF)){
     alert('⚠️ No se pudo cargar la librería de PDF (requiere conexión a internet la primera vez).');
@@ -2417,15 +2425,7 @@ function printCertificates(ids){
   const emps = ids.map(id => EMPLOYEES.find(x => x.id === id)).filter(e => e && e.estatus === 'Aprobado');
   if(!emps.length){ showToast('⚠️ No hay certificados de empleados aprobados para imprimir'); return; }
 
-  const doc      = _buildCertificatesDoc(emps);
-  const filename = emps.length === 1 ? _certFileName(emps[0]) : `Certificados_Aprobados_${emps.length}.pdf`;
-
-  doc.autoPrint();
-  const url = doc.output('bloburl');
-  const win = window.open(url, '_blank');
-  if(!win) showToast('⚠️ El navegador bloqueó la ventana emergente. Habilita las ventanas emergentes para imprimir.');
-
-  doc.save(filename);
+  emps.forEach(e => _printOneCertificate(e));
 }
 
 // ── Modal "Imprimir Certificados": lista de empleados con estatus Aprobado ──
