@@ -1449,6 +1449,11 @@
       <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--text2);cursor:pointer;font-weight:600">
         <input type="checkbox" id="cert-select-all" onchange="_certToggleAll(this.checked)"> Seleccionar todos
       </label>
+      <select class="flt" id="cert-know-filter" onchange="_certRenderList()" title="Filtrar por Knowledge Certification">
+        <option value="">🎓 Knowledge Cert.: Todas</option>
+        <option value="Aplica">✅ Aplica</option>
+        <option value="NA">— N/A</option>
+      </select>
       <div id="cert-count" style="font-size:.78rem;color:var(--green);font-weight:600"></div>
     </div>
     <div id="cert-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:9px"></div>
