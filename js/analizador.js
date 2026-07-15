@@ -14,14 +14,9 @@ function norm(s){ if(!s) return "";
   return String(s).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
 function tokens(s){ return new Set(norm(s).split(" ").filter(t=>t.length>1)); }
-function jaccard(a,b){ if(!a.size||!b.size) return 0;
-  let inter=0; for(const t of a) if(b.has(t)) inter++;
-  return inter/(a.size+b.size-inter); }
 function containment(a,b){ if(!a.size||!b.size) return 0;
   let inter=0; for(const t of a) if(b.has(t)) inter++;
   return inter/Math.min(a.size,b.size); }
-function nameScore(a,b){ const ta=tokens(a),tb=tokens(b);
-  return Math.round(100*(0.5*jaccard(ta,tb)+0.5*containment(ta,tb))); }
 function pct(x,d=1){ return (x*100).toFixed(d)+"%"; }
 // esc() delega en la implementación global definida en el módulo "Sistema" (más arriba en el documento)
 function pearson(xs,ys){
@@ -136,6 +131,14 @@ function guessExam(fileName, sheetName){
   return {exam:best, conf:Math.round(bestS)};
 }
 async function handleFiles(list){
+  // Refrescar el maestro desde el Sistema ANTES de adivinar/listar exámenes:
+  // antes de esta llamada, guessExam() y el menú "Asignar examen manualmente"
+  // usaban el maestro embebido de fábrica (MASTER.exams incrustado al inicio
+  // del archivo), porque _refreshMasterFromSistema() solo se disparaba al
+  // ejecutar el análisis. Si la numeración REG-xxx o los nombres de examen del
+  // Sistema real difieren del embebido, el archivo quedaba etiquetado con un
+  // REG que no es el del Sistema → nunca correlaciona en runAnalysis().
+  _refreshMasterFromSistema();
   for(const f of list){
     if(!/\.(xlsx|xls|csv)$/i.test(f.name)) continue;
     try{
@@ -207,24 +210,16 @@ $$(".tab").forEach(t=>t.addEventListener("click",()=>{
   $("#pane-"+t.dataset.t).classList.add("active");
 }));
 
-function matchEmployee(nm, em, thr){
+function matchEmployee(nm, em){
   if(em && EMP_BY_EMAIL[em]) return {emp:EMP_BY_EMAIL[em], method:"email", score:100};
-  if(!nm) return {emp:null,method:"sin datos",score:0};
-  let best=null,bestS=0;
-  for(const e of MASTER.emps){
-    const s=nameScore(nm,e.nombre);
-    if(s>bestS){bestS=s;best=e;}
-  }
-  if(bestS===100) return {emp:best,method:"nombre exacto",score:100};
-  if(bestS>=thr) return {emp:best,method:"nombre difuso",score:bestS};
-  return {emp:null,method:"no encontrado",score:bestS};
+  if(!nm && !em) return {emp:null,method:"sin datos",score:0};
+  return {emp:null,method:"no encontrado",score:0};
 }
 
 function runAnalysis(){
   _refreshMasterFromSistema();
 
   const passThr=(+$("#passThreshold").value||80)/100;
-  const nameThr=+$("#nameThreshold").value||62;
 
   /* ---- procesar cada archivo ---- */
   const records=[]; // {file, examReg, exam, nombre, email, points, maxPts, pctScore, match{emp,method,score}, dup}
@@ -241,7 +236,7 @@ function runAnalysis(){
       quality.filasTotales++;
       if(!r.nombre&&!r.email) quality.vacioNombre++;
       if(r.points===null) quality.vacioPuntos++;
-      const m=matchEmployee(r.nombre,r.email,nameThr);
+      const m=matchEmployee(r.nombre,r.email);
       if(!m.emp && (r.nombre||r.email)) quality.noEncontrados++;
       const key=(m.emp?m.emp.num:norm(r.nombre)||r.email)+"|"+(exam?exam.reg:f.name);
       let dup=false;
@@ -317,7 +312,8 @@ function runAnalysis(){
   const totAprob=Object.values(empStats).reduce((a,s)=>a+s.aprobados,0);
 
   A={records,best,rowsCorr,empStats,quality,soloForms,soloMaestro,byArea,bySup,byPuesto,byCurso,
-     passThr,nameThr,totAsig,totComp,totAprob,filesNoExam};
+     passThr,totAsig,totComp,totAprob,filesNoExam};
+  window._A = A; // expone el resultado del análisis para depuración desde la consola
   renderAll();
   _autoSyncChecksToSistema(); // ► auto-sync checks al Sistema al ejecutar análisis
   $("#results").style.display="block";
@@ -329,9 +325,18 @@ function _autoSyncChecksToSistema(){
   if(!A || !A.rowsCorr) return;
   const results=[];
   for(const r of A.rowsCorr){
-    if(r.aplica && r.fr && r.fr.pctScore!==null && r.fr.pctScore>=A.passThr){
+    // Un "check" del Sistema = examen COMPLETADO (con registro en formularios),
+    // exactamente como lo cuenta el Analizador en el panel de Personal
+    // (pCompMap) y en empStats: ahí basta `r.fr` para ser "Completado".
+    // Antes se exigía además puntaje legible y aprobatorio (pctScore>=passThr),
+    // por lo que un examen completado sin puntaje interpretable o reprobado se
+    // veía "Completado" en el Analizador pero NO se marcaba su check en el
+    // Sistema → "el analizador no manda todos los checks". Enviamos ahora todos
+    // los completados y conservamos `pct` (null si no hubo puntaje) como dato.
+    if(r.aplica && r.fr){
       results.push({num:String(r.emp.num).trim(), examReg:r.exam.reg,
-        pct:Math.round(r.fr.pctScore*100), nombre:r.emp.nombre});
+        pct:(r.fr.pctScore!==null)?Math.round(r.fr.pctScore*100):null,
+        nombre:r.emp.nombre});
     }
   }
   if(!results.length) return;
@@ -439,10 +444,9 @@ function renderDiccionario(){
   h+=`</tbody></table></div></div>
   <div class="card"><h2>🔑 Paso 2 · Claves de unión</h2>
   <ul class="clean">
-    <li><b>Clave primaria propuesta:</b> Correo electrónico (coincidencia exacta, insensible a mayúsculas). Es el identificador más confiable entre formularios y maestro.</li>
-    <li><b>Clave secundaria:</b> Nombre normalizado (mayúsculas, sin acentos, sin puntuación) comparado por conjunto de palabras (Jaccard + contención), tolerante al orden "Apellido, Nombre" vs "Nombre Apellido".</li>
+    <li><b>Clave única de coincidencia:</b> Correo electrónico (coincidencia exacta, insensible a mayúsculas). Es el único criterio para vincular un registro de formulario con un empleado del maestro y calificarlo en el Sistema; el nombre ya no se usa como respaldo.</li>
     <li><b>Clave del examen:</b> el nombre del archivo / hoja se compara contra "Tema de Entrenamiento" del maestro; si la confianza es baja, se asigna manualmente.</li>
-    <li><b>Riesgos de calidad:</b> homónimos, nombres incompletos, correos personales en lugar de corporativos, y exportaciones sin columna de identificación. Cada coincidencia difusa reporta su % de similitud para trazabilidad.</li>
+    <li><b>Riesgos de calidad:</b> correos personales en lugar de corporativos, correos mal escritos, y exportaciones sin columna de correo. Todo registro sin email exacto en el maestro se reporta como "no encontrado", aunque el nombre coincida.</li>
   </ul>
   <div class="note"><b>Nota de transparencia:</b> el puntaje máximo de cada examen no viene en la exportación de Forms, por lo que se estima como el <b>valor máximo observado</b> en la columna de puntos de cada archivo. Si nadie obtuvo el puntaje perfecto en un archivo, el % estará sobreestimado. Este supuesto se declara aquí explícitamente.</div>
   </div>`;
@@ -472,12 +476,12 @@ function renderCalidad(){
   h+=`<div class="card"><h2>Registros sin coincidencia en el maestro (${nf.length})</h2>`;
   if(!nf.length) h+=`<div class="empty">Todos los registros con datos coincidieron con el maestro ✔</div>`;
   else{
-    h+=`<div class="tscroll" style="max-height:340px"><table><thead><tr><th>Archivo</th><th>Nombre en formulario</th><th>Correo</th><th>Mejor similitud</th></tr></thead><tbody>`;
+    h+=`<div class="tscroll" style="max-height:340px"><table><thead><tr><th>Archivo</th><th>Nombre en formulario</th><th>Correo</th></tr></thead><tbody>`;
     for(const r of nf.slice(0,500)){
-      h+=`<tr><td class="small">${esc(r.file)}</td><td>${esc(r.nombre)||"—"}</td><td>${esc(r.email)||"—"}</td><td>${r.match.score}%</td></tr>`;
+      h+=`<tr><td class="small">${esc(r.file)}</td><td>${esc(r.nombre)||"—"}</td><td>${esc(r.email)||"—"}</td></tr>`;
     }
     h+=`</tbody></table></div>
-    <div class="note">Revisar manualmente: pueden ser personal dado de baja, nombres mal escritos o personas ajenas a la lista maestra. Puedes bajar el umbral de similitud y reanalizar si ves coincidencias obvias.</div>`;
+    <div class="note">Revisar manualmente: pueden ser personal dado de baja, correos ausentes o mal escritos, o personas ajenas a la lista maestra. Corrige el correo en el formulario o en el maestro y reanaliza.</div>`;
   }
   h+=`</div>`;
   $("#pane-calidad").innerHTML=h;
@@ -580,13 +584,11 @@ function renderCorrelacion(){
 
   const pTipoDe = e => ((e.certExamen||"").trim()==="Aplica") ? "Knowledge Certification" : "SKILL ASSESSMENT";
 
-  // Completados = exámenes con registro en formularios ∪ marcados en el Sistema
+  // Completados = exámenes con registro en formularios (única fuente: el
+  // Analizador ya no recibe checks marcados a mano en el Sistema)
   function pCompMap(){
     const m={};
     ((A&&A.rowsCorr)||[]).forEach(r=>{ if(r.fr){ (m[r.emp.num]=m[r.emp.num]||new Set()).add(r.exam.reg); } });
-    Object.entries(window._sysChecks||{}).forEach(([num,regs])=>{
-      const s=m[num]=m[num]||new Set(); (regs||[]).forEach(x=>s.add(x));
-    });
     return m;
   }
 
@@ -611,11 +613,9 @@ function renderCorrelacion(){
   function paintPersonal(){
     const list=pFiltered();
     const cm=pCompMap();
-    const sa=window._sysAsignados||{};
     $("#pBody").innerHTML = list.map(e=>{
       const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
-      // Asignados: preferir dato autoritativo del Sistema, fallback al cálculo local
-      const asig = (typeof sa[e.num]==='number') ? sa[e.num] : st.asignados;
+      const asig = st.asignados;
       const comp=(cm[e.num]||{size:0}).size;
       const t=pTipoDe(e);
       const sel=window._pSel.has(e.num)?"checked":"";
@@ -642,8 +642,6 @@ function renderCorrelacion(){
       : "Sin selección — los reportes usan TODO el filtro actual";
   }
 
-  window._paintPersonal = paintPersonal;   // repintado externo tras sync ← Sistema
-
   // Objetivo de las acciones: seleccionados si hay, si no, todo el filtro
   const pTargets = () => {
     const list=pFiltered();
@@ -669,10 +667,9 @@ function renderCorrelacion(){
   $("#pBtnCSV").addEventListener("click",()=>{
     const rows=[["Numero","Empleado","Area","Puesto","Supervisor","Tipo","Asignados","Completados","Validacion"]];
     const cm=pCompMap();
-    const sa=window._sysAsignados||{};
     for(const e of pTargets()){
       const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
-      const asig=(typeof sa[e.num]==='number')?sa[e.num]:st.asignados;
+      const asig=st.asignados;
       const comp=(cm[e.num]||{size:0}).size;
       const val=(asig>0 && comp===asig)?"Validado":"En proceso";
       rows.push([e.num,e.nombre,e.area,e.puesto,e.supervisor,pTipoDe(e),asig,comp,val]);
@@ -713,8 +710,8 @@ function renderCorrelacion(){
     doc.autoTable({
       startY:84,
       head:[["#","Empleado","Area","Puesto","Supervisor","Tipo","Asig.","Compl.","Validacion"]],
-      body:(()=>{const cm=pCompMap();const sa=window._sysAsignados||{};return tgt.map(e=>{const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
-        const asig=(typeof sa[e.num]==='number')?sa[e.num]:st.asignados;
+      body:(()=>{const cm=pCompMap();return tgt.map(e=>{const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
+        const asig=st.asignados;
         const comp=(cm[e.num]||{size:0}).size;
         const val=(asig>0 && comp===asig)?"Validado":"En proceso";
         return [e.num,pdfText(e.nombre),pdfText(e.area),pdfText(e.puesto),pdfText(e.supervisor),pdfText(pTipoDe(e)),asig,comp,val];});})(),
@@ -823,7 +820,7 @@ function renderRecomendaciones(){
   if(areasBajas.length) recs.push(["Alta",`Intervención dirigida en áreas rezagadas: ${areasBajas.map(([k])=>k).join(", ")}`,"Eleva el cumplimiento global de forma focalizada","Medio"]);
   if(A.quality.noEncontrados) recs.push(["Alta",`Depurar los ${A.quality.noEncontrados} registros sin coincidencia (bajas, homónimos, errores de captura)`,"Mejora la trazabilidad y la confianza del indicador","Bajo"]);
   if(A.filesNoExam.length) recs.push(["Alta",`Asignar examen a los ${A.filesNoExam.length} archivos no identificados y reanalizar`,"Evita subreporte de cumplimiento","Bajo"]);
-  recs.push(["Media","Estandarizar la exportación de Forms: incluir siempre Email corporativo y puntaje máximo del examen","Elimina coincidencias difusas y el supuesto de puntaje máximo observado","Bajo"]);
+  recs.push(["Media","Estandarizar la exportación de Forms: incluir siempre Email corporativo y puntaje máximo del examen","El email es ahora la única clave de coincidencia; sin él el registro no se vincula al maestro ni califica en el Sistema","Bajo"]);
   if(A.quality.duplicados) recs.push(["Media",`Definir política formal para reintentos (hoy: ${A.quality.duplicados} duplicados, se toma el mejor intento)`,"Criterio único y auditable","Bajo"]);
   recs.push(["Media","Cargar este análisis periódicamente (semanal/mensual) y dar seguimiento al KPI de cumplimiento","Tendencia visible y detección temprana de rezago","Bajo"]);
   recs.push(["Baja","Agregar fecha de vigencia/vencimiento por examen en el maestro para detectar certificaciones vencidas","Hoy no es posible calcular vencidos: el maestro no incluye vigencias (limitación declarada)","Medio"]);
@@ -831,142 +828,18 @@ function renderRecomendaciones(){
   <table><thead><tr><th>Prioridad</th><th>Acción</th><th>Impacto</th><th>Esfuerzo</th></tr></thead><tbody>
   ${recs.map(([p,a,i,e])=>`<tr><td class="sev-${p.toLowerCase()}">${p}</td><td>${a}</td><td class="small">${i}</td><td>${e}</td></tr>`).join("")}
   </tbody></table>
-  <div class="note"><b>Limitaciones declaradas (regla de veracidad):</b> (1) los formularios no incluyen fecha de vigencia, por lo que <b>no es posible determinar entrenamientos vencidos</b> con los datos disponibles; (2) el puntaje máximo por examen se estima del máximo observado; (3) las coincidencias difusas de nombre se reportan con su % de similitud y deben validarse cuando sea &lt; 80%. Cumplimiento global actual: ${pct(cumpl)}.</div></div>`;
+  <div class="note"><b>Limitaciones declaradas (regla de veracidad):</b> (1) los formularios no incluyen fecha de vigencia, por lo que <b>no es posible determinar entrenamientos vencidos</b> con los datos disponibles; (2) el puntaje máximo por examen se estima del máximo observado; (3) la coincidencia con el maestro requiere email exacto (insensible a mayúsculas); los registros sin email o con un email que no está en el maestro se marcan como "no encontrado" y no califican en el Sistema, aun si el nombre coincide. Cumplimiento global actual: ${pct(cumpl)}.</div></div>`;
   $("#pane-recomendaciones").innerHTML=h;
 }
 
 /* ════════════════════════════════════════════════════════════════
-   SINCRONIZACIÓN ← sistema_entrenamiento_v11
-   El Sistema publica {statuses:[{num,estatus}], checks:[{num,regs}]}.
-   Aquí se aplica al maestro: estatus actualizados y exámenes marcados
-   (window._sysChecks) que se SUMAN a los completados por formularios
-   en el panel de Personal, para que ambos HTML muestren lo mismo.
-   Canales: localStorage['nmc-sistema-sync'] (auto al cargar, en vivo
-   entre pestañas, o botón 🔄) y archivo JSON (botón 📥, funciona
-   siempre, incluso con file://). Aplicación IDEMPOTENTE.
+   Dirección Sistema → Analizador ELIMINADA (2026-07-15).
+   El Analizador ya no recibe checks/estatus/asignados empujados por el
+   Sistema; solo cuenta lo que él mismo procesa de los formularios/Excel
+   (ver `runAnalysis`, `empStats`, `pCompMap`). La sincronización que
+   queda es unidireccional: Analizador → Sistema (`_autoSyncChecksToSistema`
+   más abajo, canal 'nmc-analyzer-sync').
    ════════════════════════════════════════════════════════════════ */
-window._sysChecks = window._sysChecks || {};   // num → [REG-…] marcados en el Sistema
-window._sysAsignados = window._sysAsignados || {};  // num → cantidad de exámenes asignados (autoritativo del Sistema)
-
-function _sysNormNum(v){ return _syncNormNum(v); } // delega en la única implementación (módulo "Sistema")
-
-// Sello visible de "última actualización": muestra cuándo el Sistema generó
-// el paquete (payload.generated) y cuándo el Analizador lo aplicó.
-function _fmtFechaHora(iso){
-  const d = iso ? new Date(iso) : new Date();
-  if(isNaN(d.getTime())) return '—';
-  return d.toLocaleString('es-MX', {
-    day:'2-digit', month:'2-digit', year:'numeric',
-    hour:'2-digit', minute:'2-digit', hour12:true
-  });
-}
-function updateLastSyncStamp(generatedIso){
-  const el = document.getElementById('lastSyncInfo');
-  if(!el) return;
-  const gen = _fmtFechaHora(generatedIso);
-  el.textContent = `🕒 Última actualización: ${gen}`;
-  el.title = `Datos generados por el Sistema: ${gen}\nAplicados en el Analizador: ${_fmtFechaHora(new Date().toISOString())}`;
-  try{ localStorage.setItem('nmc-sistema-sync-stamp', generatedIso||new Date().toISOString()); }catch(e){}
-}
-
-function _miniToast(msg){
-  let t=document.getElementById('miniToast');
-  if(!t){ t=document.createElement('div'); t.id='miniToast';
-    t.style.cssText='position:fixed;bottom:18px;right:18px;z-index:9999;background:#1b4f8a;color:#fff;'+
-      'padding:10px 16px;border-radius:8px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:420px';
-    document.body.appendChild(t); }
-  t.textContent=msg; t.style.display='block';
-  clearTimeout(t._h); t._h=setTimeout(()=>{ t.style.display='none'; }, 6000);
-}
-
-function applySistemaSync(payload, origen, opts){
-  opts = opts || {};
-  if(!payload || payload.v!==1 || !Array.isArray(payload.statuses)){
-    if(!opts.silent) alert('⚠️ Paquete de sincronización inválido (se esperaba el JSON del Sistema de Entrenamiento)');
-    return null;
-  }
-  const byNum={};
-  MASTER.emps.forEach(e=>{ byNum[_sysNormNum(e.num)]=e; });
-
-  let estatusCambiados=0, sinEmpleado=0;
-  window._sysAsignados={};
-  for(const s of payload.statuses){
-    const e=byNum[_sysNormNum(s.num)];
-    if(!e){ sinEmpleado++; continue; }
-    if(s.estatus && e.estatus!==s.estatus){ e.estatus=s.estatus; estatusCambiados++; }
-    if(typeof s.asignados==='number') window._sysAsignados[e.num]=s.asignados;
-    if(typeof s.cert_examen==='string') e.certExamen=s.cert_examen||'';
-    if(typeof s.cert_cofc==='string')   e.certCofc=s.cert_cofc||'';
-    if(typeof s.area==='string')       e.area=s.area;
-    if(typeof s.puesto==='string')     e.puesto=s.puesto;
-    if(typeof s.supervisor==='string') e.supervisor=s.supervisor;
-  }
-
-  let empConChecks=0, totalChecks=0;
-  window._sysChecks={};
-  for(const c of (payload.checks||[])){
-    const e=byNum[_sysNormNum(c.num)];
-    if(!e){ sinEmpleado++; continue; }
-    const regs=Array.from(new Set(c.regs||[]));
-    if(regs.length){ window._sysChecks[e.num]=regs; empConChecks++; totalChecks+=regs.length; }
-  }
-
-  // Persistir el paquete para re-aplicarlo en futuras cargas
-  try{ localStorage.setItem('nmc-sistema-sync', JSON.stringify(payload)); }catch(e){}
-
-  // Sello visible de última actualización (fecha y hora del paquete)
-  updateLastSyncStamp(payload.generated);
-
-  // Repintar lo afectado si ya hay un análisis en pantalla
-  // Repintar Reportes — funciona incluso sin haber ejecutado análisis
-  try{ if(window._paintPersonal) window._paintPersonal(); }catch(e){ console.warn('sync repintado:', e); }
-
-  const resumen={estatusCambiados, empConChecks, totalChecks, sinEmpleado,
-                 totalStatuses:payload.statuses.length};
-  if(!opts.silent || estatusCambiados || totalChecks){
-    _miniToast(`📥 Sincronización ${origen} desde el Sistema: ${estatusCambiados} estatus actualizados · `+
-      `${totalChecks} exámenes marcados de ${empConChecks} empleado(s)`+
-      (sinEmpleado?` · ⚠️ ${sinEmpleado} sin coincidencia`:''));
-  }
-  return resumen;
-}
-
-function _checkSistemaSync(manual){
-  let raw=null;
-  try{ raw=localStorage.getItem('nmc-sistema-sync'); }catch(e){}
-  if(!raw){
-    if(manual) alert('⚠️ No hay paquete del Sistema en este navegador.\n\nGenera uno con 📤 Enviar al Analizador en el Sistema de Entrenamiento, o usa 📥 Importar del Sistema (JSON).');
-    return;
-  }
-  try{
-    const payload=JSON.parse(raw);
-    const yaAplicado=localStorage.getItem('nmc-sistema-sync-applied')===payload.generated;
-    applySistemaSync(payload, manual?'manual':'automática', {silent:!manual && yaAplicado});
-    if(payload.generated){ try{ localStorage.setItem('nmc-sistema-sync-applied', payload.generated); }catch(e){} }
-  }catch(e){
-    console.warn('_checkSistemaSync:', e);
-    if(manual) alert('⚠️ El paquete del Sistema está dañado; usa 📥 Importar del Sistema (JSON)');
-  }
-}
-
-// Los botones manuales "🔄 Sincronizar desde Sistema" y "📥 Importar del
-// Sistema" se retiraron: la recepción es AUTOMÁTICA (empuje directo del
-// Sistema en la misma página + aplicación al cargar + evento storage entre
-// pestañas). `applySistemaSync` y `_checkSistemaSync` permanecen como motor.
-
-// Sincronización EN VIVO entre pestañas del mismo origen
-window.addEventListener('storage',ev=>{
-  if(ev.key==='nmc-sistema-sync' && ev.newValue) _checkSistemaSync(false);
-});
-
-// Aplicación automática al cargar la página
-_checkSistemaSync(false);
-
-// Restaurar el sello de última actualización de una sesión previa
-try{
-  const stamp=localStorage.getItem('nmc-sistema-sync-stamp');
-  if(stamp) updateLastSyncStamp(stamp);
-}catch(e){}
 
 
 /* ── Expose needed globals for Sistema↔Analizador integration ──
@@ -976,7 +849,6 @@ try{
    en esa única implementación, re-renderizando si hay un análisis en
    pantalla. Antes existía un `_rebuildMasterFromSistema`/`_rebuildMasterIndexes`
    duplicado (reasignaba MASTER); se eliminó por redundante. */
-window.applySistemaSync = applySistemaSync;
 window._refreshMasterFromSistema = function(){
   try{
     _refreshMasterFromSistema();   // reconstruye MASTER + índices (in situ)

@@ -51,16 +51,6 @@
         ⬇ Descargar Excel
       </button>
       <div style="height:1px;background:var(--border);margin:0 .75rem"></div>
-      <!-- Salvaguarda de respaldo JSON (canal cross-máquina). La sincronización
-           normal es automática; esto solo se usa si el Sistema y el Analizador
-           se abren en navegadores/archivos separados. -->
-      <button onclick="exportToAnalyzer();closeKebab()"
-        title="Descargar respaldo JSON con estatus y exámenes marcados para importarlo en un Analizador abierto por separado"
-        style="width:100%;padding:.7rem 1rem;background:none;border:none;color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:.6rem;transition:background .15s;text-align:left"
-        onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background='none'">
-        📤 Exportar respaldo (JSON)
-      </button>
-      <div style="height:1px;background:var(--border);margin:0 .75rem"></div>
       <button onclick="document.getElementById('sync-file-input').click();closeKebab()"
         title="Importar un JSON de calificaciones aprobadas generado por un Analizador abierto por separado"
         style="width:100%;padding:.7rem 1rem;background:none;border:none;color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:.6rem;transition:background .15s;text-align:left"
@@ -325,13 +315,8 @@
     </div>
     <div class="controls">
       <label>Umbral de aprobación (%): <input type="number" id="passThreshold" value="80" min="1" max="100"></label>
-      <label>Similitud mínima de nombre (%): <input type="number" id="nameThreshold" value="62" min="30" max="100"></label>
       <button id="btnAnalyze" disabled>⚙️ Ejecutar análisis</button>
       <button class="ghost" id="btnClear">🗑 Limpiar todo</button>
-      <!-- Sincronización con el Sistema: AUTOMÁTICA y en vivo (el Sistema empuja
-           estatus y exámenes marcados en la misma página). El sello de abajo
-           refleja la última actualización recibida. -->
-      <span class="small" id="lastSyncInfo" style="color:#2e7d32;font-weight:600"></span>
       <span class="small" id="fileCount"></span>
     </div>
     <div id="fileList"></div>
