@@ -369,14 +369,10 @@
       </select>
       <button class="sm-btn" onclick="smGeneratePDF()">📄 Generar PDF (A3)</button>
       <button class="sm-btn ghost" onclick="smGenerateAllPDF()">📑 PDF Todas las Áreas</button>
+      <button class="sm-btn ghost" onclick="smOpenPdfConfig()">⚙️ Configurar PDF</button>
     </div>
 
-    <div class="sm-legend">
-      <strong>Leyenda:</strong>
-      <div class="sm-legend-item"><div class="sm-legend-box" style="background:#bbdefb"></div> ✓ Aprobado</div>
-      <div class="sm-legend-item"><div class="sm-legend-box" style="background:#fff9c4"></div> X Pendiente</div>
-      <div class="sm-legend-item"><div class="sm-legend-box" style="background:#fff"></div> No aplica</div>
-    </div>
+    <div class="sm-legend" id="sm-legend"></div>
 
     <div id="sm-kpis" class="sm-kpis"></div>
     <div id="sm-table-container"></div>
@@ -1424,6 +1420,156 @@
              display:flex;align-items:center;gap:.4rem">
       📄 Generar PDF
     </button>
+  </div>
+</div>
+</div>
+
+<!-- SKILL MATRIX — PDF CONFIG MODAL -->
+<div class="modal-overlay" id="sm-pdf-config-modal" role="dialog" aria-modal="true" aria-label="Configuración del PDF de Skill Matrix"
+     onclick="if(event.target.id==='sm-pdf-config-modal')event.target.classList.remove('open')">
+<div class="modal" style="max-width:620px">
+  <div class="modal-hdr" style="border-bottom:1px solid var(--border);padding-bottom:1rem">
+    <div>
+      <div style="font-size:.7rem;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem">🧩 Skill Matrix · PDF</div>
+      <div class="modal-title">Configuración del documento</div>
+    </div>
+    <button class="modal-close" aria-label="Cerrar configuración de PDF" onclick="document.getElementById('sm-pdf-config-modal').classList.remove('open')">✕</button>
+  </div>
+  <div class="modal-body" style="display:flex;flex-direction:column;gap:1.2rem">
+
+    <!-- LOGO -->
+    <div>
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:.65rem">Logo</div>
+      <div class="m-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
+        <div>
+          <label style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Alineación</label>
+          <input type="hidden" id="smpdf-logo-align" value="left">
+          <div style="display:flex;gap:.3rem">
+            <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-logo-align','left',this)">⬅ Izq</button>
+            <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-logo-align','center',this)">↔ Cent</button>
+            <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-logo-align','right',this)">➡ Der</button>
+          </div>
+        </div>
+        <div>
+          <label for="smpdf-logo-w" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Ancho</label>
+          <input id="smpdf-logo-w" type="range" min="10" max="40" step="1" value="25"
+            oninput="document.getElementById('smpdf-logo-w-lbl').textContent=this.value+'mm'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-logo-w-lbl" style="font-size:.7rem;color:var(--text3)">25mm</span>
+        </div>
+        <div>
+          <label for="smpdf-logo-h" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Alto</label>
+          <input id="smpdf-logo-h" type="range" min="8" max="30" step="1" value="18"
+            oninput="document.getElementById('smpdf-logo-h-lbl').textContent=this.value+'mm'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-logo-h-lbl" style="font-size:.7rem;color:var(--text3)">18mm</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- TEXTOS -->
+    <div>
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:.65rem">Textos del encabezado</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
+        <div>
+          <label style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Alineación</label>
+          <input type="hidden" id="smpdf-text-align" value="right">
+          <div style="display:flex;gap:.3rem">
+            <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-text-align','left',this)">⬅ Izq</button>
+            <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-text-align','center',this)">↔ Cent</button>
+            <button type="button" class="ct-btn active" onclick="smSetGroupVal('smpdf-text-align','right',this)">➡ Der</button>
+          </div>
+        </div>
+        <div>
+          <label for="smpdf-font-family" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Tipografía</label>
+          <select id="smpdf-font-family" class="flt" style="width:100%">
+            <option value="helvetica">Helvetica</option>
+            <option value="times">Times</option>
+            <option value="courier">Courier</option>
+          </select>
+        </div>
+        <div>
+          <label for="smpdf-header-size" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Tamaño encabezados</label>
+          <input id="smpdf-header-size" type="range" min="6" max="14" step="0.5" value="9"
+            oninput="document.getElementById('smpdf-header-size-lbl').textContent=this.value+'pt'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-header-size-lbl" style="font-size:.7rem;color:var(--text3)">9pt</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- LEYENDA -->
+    <div>
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:.65rem">Leyenda</div>
+      <label style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Forma</label>
+      <input type="hidden" id="smpdf-legend-shape" value="square">
+      <div style="display:flex;gap:.3rem;margin-bottom:.75rem">
+        <button type="button" class="ct-btn active" onclick="smSetGroupVal('smpdf-legend-shape','square',this)">▢ Cuadrado</button>
+        <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-legend-shape','rounded',this)">▢ Redondeado</button>
+        <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-legend-shape','circle',this)">⬤ Círculo</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <input id="smpdf-leg-color-0" type="color" value="#c8e6c9" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+          <input id="smpdf-leg-label-0" class="status-sel" type="text" maxlength="40" value="OK = Aprobado" style="flex:1">
+        </div>
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <input id="smpdf-leg-color-1" type="color" value="#fff9c4" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+          <input id="smpdf-leg-label-1" class="status-sel" type="text" maxlength="40" value="X = Pendiente" style="flex:1">
+        </div>
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <input id="smpdf-leg-color-2" type="color" value="#ffffff" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+          <input id="smpdf-leg-label-2" class="status-sel" type="text" maxlength="40" value="No aplica" style="flex:1">
+        </div>
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- CAJAS DE LA TABLA -->
+    <div>
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:.65rem">Cajas de la tabla</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.9rem">
+        <div>
+          <label for="smpdf-border-color" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Color de borde</label>
+          <input id="smpdf-border-color" type="color" value="#b4bfda" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer">
+        </div>
+        <div>
+          <label for="smpdf-border-width" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Grosor de borde</label>
+          <input id="smpdf-border-width" type="range" min="0.1" max="0.6" step="0.05" value="0.15"
+            oninput="document.getElementById('smpdf-border-width-lbl').textContent=this.value+'mm'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-border-width-lbl" style="font-size:.7rem;color:var(--text3)">0.15mm</span>
+        </div>
+        <div>
+          <label for="smpdf-cell-size" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Tamaño de letra (celdas)</label>
+          <input id="smpdf-cell-size" type="range" min="4" max="8" step="0.5" value="5.5"
+            oninput="document.getElementById('smpdf-cell-size-lbl').textContent=this.value+'pt'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-cell-size-lbl" style="font-size:.7rem;color:var(--text3)">5.5pt</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div style="padding:1rem 1.4rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:space-between;background:var(--bg2)">
+    <button onclick="smResetPdfConfig()"
+      style="padding:.5rem 1.1rem;border-radius:7px;border:1.5px solid var(--border2);background:none;
+             color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:600;cursor:pointer">
+      ↺ Restablecer
+    </button>
+    <div style="display:flex;gap:.7rem">
+      <button onclick="document.getElementById('sm-pdf-config-modal').classList.remove('open')"
+        style="padding:.5rem 1.1rem;border-radius:7px;border:1.5px solid var(--border2);background:none;
+               color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:600;cursor:pointer">
+        Cancelar
+      </button>
+      <button onclick="smSavePdfConfig()"
+        style="padding:.5rem 1.3rem;border-radius:7px;border:none;background:var(--accent);color:#fff;
+               font-family:var(--fb);font-size:.83rem;font-weight:700;cursor:pointer;
+               display:flex;align-items:center;gap:.4rem">
+        💾 Guardar
+      </button>
+    </div>
   </div>
 </div>
 </div>
