@@ -131,6 +131,14 @@ function guessExam(fileName, sheetName){
   return {exam:best, conf:Math.round(bestS)};
 }
 async function handleFiles(list){
+  // Refrescar el maestro desde el Sistema ANTES de adivinar/listar exámenes:
+  // antes de esta llamada, guessExam() y el menú "Asignar examen manualmente"
+  // usaban el maestro embebido de fábrica (MASTER.exams incrustado al inicio
+  // del archivo), porque _refreshMasterFromSistema() solo se disparaba al
+  // ejecutar el análisis. Si la numeración REG-xxx o los nombres de examen del
+  // Sistema real difieren del embebido, el archivo quedaba etiquetado con un
+  // REG que no es el del Sistema → nunca correlaciona en runAnalysis().
+  _refreshMasterFromSistema();
   for(const f of list){
     if(!/\.(xlsx|xls|csv)$/i.test(f.name)) continue;
     try{
