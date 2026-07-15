@@ -1536,6 +1536,33 @@
 
     <div style="height:1px;background:var(--border)"></div>
 
+    <!-- TAMAÑO Y FUENTE DEL SÍMBOLO -->
+    <div>
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:.65rem">Tamaño y fuente del símbolo</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.9rem">
+        <div>
+          <label for="smpdf-symbol-size" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Tamaño del símbolo</label>
+          <input id="smpdf-symbol-size" type="range" min="4" max="20" step="0.5" value="5.5"
+            oninput="document.getElementById('smpdf-symbol-size-lbl').textContent=this.value+'pt'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-symbol-size-lbl" style="font-size:.7rem;color:var(--text3)">5.5pt</span>
+        </div>
+        <div>
+          <label for="smpdf-symbol-font" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Fuente del símbolo</label>
+          <select id="smpdf-symbol-font" class="flt" style="width:100%">
+            <option value="auto">Automática (con símbolos especiales)</option>
+            <option value="helvetica">Helvetica</option>
+            <option value="times">Times</option>
+            <option value="courier">Courier</option>
+          </select>
+        </div>
+      </div>
+      <div style="font-size:.65rem;color:var(--text3);margin-top:.4rem">
+        ℹ️ "Automática" usa la fuente con símbolos especiales (recomendado). Si eliges Helvetica/Times/Courier y el contenido de celda tiene un símbolo especial, se sustituye por "OK"/"X" — esas fuentes no los soportan.
+      </div>
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
     <!-- CAJAS DE LA TABLA -->
     <div>
       <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:.65rem">Cajas de la tabla</div>

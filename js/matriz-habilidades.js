@@ -139,12 +139,13 @@
         html += `<td class="sm-title">${esc(emp.puesto)||''}</td>`;
         const stCls = emp.estatus==='Aprobado'?'sm-cell-aprobado': emp.estatus==='Pendiente'?'sm-cell-pendiente':'sm-cell-empty';
         html += `<td class="${stCls}" style="font-size:.65rem;white-space:nowrap">${esc(emp.estatus)||'—'}</td>`;
+        const symStyle = `font-size:${pdfCfg.symbolSize}px`;
         ds.exams.forEach(ex=>{
           if(empExamIds.has(ex.id)){
             if(checks[ex.id]){
-              html += `<td class="sm-cell-aprobado" style="background:${esc(pdfCfg.legend[0].color)}!important" title="${esc(ex.tema)} — Aprobado">${esc(pdfCfg.legend[0].symbol)}</td>`;
+              html += `<td class="sm-cell-aprobado" style="background:${esc(pdfCfg.legend[0].color)}!important;${symStyle}" title="${esc(ex.tema)} — Aprobado">${esc(pdfCfg.legend[0].symbol)}</td>`;
             } else {
-              html += `<td class="sm-cell-pendiente" style="background:${esc(pdfCfg.legend[1].color)}!important" title="${esc(ex.tema)} — Pendiente">${esc(pdfCfg.legend[1].symbol)}</td>`;
+              html += `<td class="sm-cell-pendiente" style="background:${esc(pdfCfg.legend[1].color)}!important;${symStyle}" title="${esc(ex.tema)} — Pendiente">${esc(pdfCfg.legend[1].symbol)}</td>`;
             }
           } else {
             html += `<td class="sm-cell-empty" style="background:${esc(pdfCfg.legend[2].color)}!important"></td>`;
@@ -217,6 +218,8 @@
     fontFamily: 'helvetica', // helvetica | times | courier (fuentes estándar de jsPDF)
     headerSize: 9,
     cellSize: 5.5,
+    symbolSize: 5.5,         // tamaño del contenido de celda (HTML px / PDF pt)
+    symbolFont: 'auto',      // auto (con símbolos) | helvetica | times | courier
     legendShape: 'square',   // square | rounded | circle
     // symbol = contenido mostrado en la celda de examen, idéntico en HTML y PDF
     legend: [
@@ -264,6 +267,9 @@
     document.getElementById('smpdf-header-size-lbl').textContent = cfg.headerSize+'pt';
     document.getElementById('smpdf-cell-size').value = cfg.cellSize;
     document.getElementById('smpdf-cell-size-lbl').textContent = cfg.cellSize+'pt';
+    document.getElementById('smpdf-symbol-size').value = cfg.symbolSize;
+    document.getElementById('smpdf-symbol-size-lbl').textContent = cfg.symbolSize+'pt';
+    document.getElementById('smpdf-symbol-font').value = cfg.symbolFont;
     document.getElementById('smpdf-border-color').value = cfg.borderColor;
     document.getElementById('smpdf-border-width').value = cfg.borderWidth;
     document.getElementById('smpdf-border-width-lbl').textContent = cfg.borderWidth+'mm';
@@ -303,6 +309,8 @@
       fontFamily: document.getElementById('smpdf-font-family').value,
       headerSize: parseFloat(document.getElementById('smpdf-header-size').value),
       cellSize: parseFloat(document.getElementById('smpdf-cell-size').value),
+      symbolSize: parseFloat(document.getElementById('smpdf-symbol-size').value),
+      symbolFont: document.getElementById('smpdf-symbol-font').value,
       legendShape: document.getElementById('smpdf-legend-shape').value,
       legend: [0,1,2].map(i=>({
         label: document.getElementById(`smpdf-leg-label-${i}`).value || SM_PDF_CONFIG_DEFAULT.legend[i].label,
@@ -372,6 +380,7 @@
   function smBuildPDF(datasets, filenameSuffix){
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a3'});
+    const cfg = smGetPdfConfig();
 
     // Fuente Unicode embebida (subset de DejaVu Sans, cargada desde
     // sm-pdf-font.js) — permite usar símbolos especiales (• ● ✓ ✔ ✗ ✘ ★ ☆ ⚠
@@ -393,6 +402,13 @@
       } catch(e){ hasSymbolFont = false; }
     }
 
+    // "auto" usa la fuente con símbolos si cargó; elegir un estándar a
+    // propósito renuncia a los símbolos especiales (ver pdfSafeSymbol).
+    const symbolFontName = cfg.symbolFont==='auto'
+      ? (hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily)
+      : cfg.symbolFont;
+    const symbolFontSupportsUnicode = cfg.symbolFont==='auto' && hasSymbolFont;
+
     // jsPDF Helvetica/Times/Courier no soportan Unicode — transliterar a ASCII
     function ascii(s){
       return String(s ?? '')
@@ -404,12 +420,12 @@
         .replace(/[^\x20-\x7E]/g,'');
     }
 
-    // Símbolo de celda para PDF: si la fuente Unicode embebida cargó, se usa
-    // el texto tal cual (el glifo se dibuja con SM_FONT_NAME). Si por algún
-    // motivo la fuente no está disponible, se recurre a la transliteración
-    // ASCII con un respaldo legible para que la celda no quede vacía.
+    // Símbolo de celda para PDF: si la fuente activa soporta Unicode, se usa
+    // el texto tal cual. Si el usuario forzó una fuente estándar (o la fuente
+    // Unicode no cargó), se recurre a la transliteración ASCII con un
+    // respaldo legible para que la celda no quede vacía.
     function pdfSafeSymbol(raw, fallback){
-      if(hasSymbolFont) return String(raw ?? '');
+      if(symbolFontSupportsUnicode) return String(raw ?? '');
       const a = ascii(raw);
       if(a.trim()==='' && String(raw||'').trim()!=='') return fallback;
       return a;
@@ -425,7 +441,6 @@
     const certF = smGetCertFilter();
     const certLabel = certF==='skill' ? 'SKILL ASSESSMENT' : certF==='knowledge' ? 'Knowledge Certification' : '';
 
-    const cfg = smGetPdfConfig();
     const cellSizeSmall = Math.max(3, cfg.cellSize - 0.5);
 
     datasets.forEach((ds, dsIdx)=>{
@@ -506,7 +521,7 @@
         // radio casi cero: algunos motores de impresión/PDF fallan al rasterizar
         // curvas Bézier degeneradas y la caja terminaba sin imprimirse.
         doc.setFontSize(6.5);
-        doc.setFont(hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily, 'normal');
+        doc.setFont(symbolFontName, 'normal');
         doc.setTextColor(0,0,0);
         doc.setDrawColor(0,0,0);
         doc.setLineWidth(0.1);
@@ -722,7 +737,8 @@
             // examCellKind en vez del texto de la celda para evitar ambigüedad.
             if(ci >= 5 && ri < totalDataRows){
               const kind = examCellKind[ri][ci-5];
-              data.cell.styles.font = hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily;
+              data.cell.styles.font = symbolFontName;
+              data.cell.styles.fontSize = cfg.symbolSize;
               if(kind==='ok'){
                 data.cell.styles.fillColor = smHexToRgb(cfg.legend[0].color);
                 data.cell.styles.textColor = [46,125,50];
