@@ -3514,59 +3514,10 @@ function importAnalyzerFile(input){
   reader.readAsText(file);
 }
 
-// ── SINCRONIZACIÓN → Analizador (sentido inverso) ──
-// Constructor ÚNICO del paquete Sistema→Analizador: foto actual con estatus de
-// todos los empleados (incluye área/puesto/supervisor y el conteo autoritativo
-// de "Asignados") y los exámenes marcados. Lo usan tanto el respaldo manual
-// (exportToAnalyzer) como el auto-export silencioso (_autoExportToAnalizador).
-function _buildSistemaPayload(source){
-  const checks = [];
-  EMPLOYEES.forEach(e => {
-    const ch = _getChecks(e.id);
-    const regs = Object.keys(ch).filter(k => ch[k]);
-    if(regs.length) checks.push({num:_syncNormNum(e.numero), regs});
-  });
-  const statuses = EMPLOYEES.map(e => ({
-    num: _syncNormNum(e.numero),
-    estatus: e.estatus||'',
-    asignados: new Set(e.exam_ids||[]).size,
-    cert_examen: e.cert_examen||'',
-    cert_cofc: e.cert_cofc||'',
-    area: e.area||'',
-    puesto: e.puesto||'',
-    supervisor: e.supervisor||''
-  }));
-  return {v:1, source, generated:new Date().toISOString(), statuses, checks};
-}
-
-// Respaldo manual (menú ⋮): escribe localStorage y descarga el JSON para el
-// canal cross-máquina. La sincronización normal ya es automática y en vivo.
-function exportToAnalyzer(){
-  const payload = _buildSistemaPayload('sistema_entrenamiento_v11');
-  const statuses = payload.statuses, checks = payload.checks;
-  const json = JSON.stringify(payload);
-
-  // Canal 1 — localStorage (verificación real de escritura)
-  let viaLS = false;
-  try{
-    localStorage.setItem('nmc-sistema-sync', json);
-    viaLS = localStorage.getItem('nmc-sistema-sync') === json;
-  }catch(e){ viaLS = false; }
-
-  // Canal 2 — descarga JSON (funciona siempre, incluso en file://)
-  try{
-    const blob = new Blob([json], {type:'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'sync_sistema_entrenamiento.json';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-  }catch(e){ console.warn('export download:', e); }
-
-  const auto = viaLS && location.protocol !== 'file:';
-  showToast(`📤 Enviado al Analizador: ${statuses.length} estatus · ${checks.length} empleado(s) con exámenes marcados`
-    + (auto ? ' · canal automático activo' : ' · importa el JSON descargado en el Analizador'));
-}
+// La dirección Sistema → Analizador se eliminó (2026-07-15): ya no existen
+// `_buildSistemaPayload` ni `exportToAnalyzer`. El Analizador solo cuenta lo
+// que él mismo procesa de los formularios/Excel; la sincronización que queda
+// es unidireccional Analizador → Sistema (ver `_checkAnalyzerSync` más abajo).
 
 // Sincronización EN VIVO: si el Analizador (mismo origen, otra pestaña)
 // publica un paquete nuevo, se aplica aquí sin recargar la página.
@@ -3604,31 +3555,8 @@ function saveEmployeeData(){
     };
     localStorage.setItem('nmc-employee-data', JSON.stringify(data));
   } catch(e){ console.warn('saveEmployeeData error:', e); }
-  // ► Auto-sync silencioso → Analizador (debounced 600ms para no saturar)
-  _schedAutoExport();
-}
-
-/* ── AUTO-EXPORT SILENCIOSO → Analizador ─────────────────
-   Cada vez que se guardan datos de empleados (check, estatus, etc.),
-   se escribe un paquete compacto en localStorage['nmc-sistema-sync']
-   para que el Analizador lo aplique en vivo (storage event) o al cargar.
-   Solo localStorage — sin descarga de archivo, sin toast.
-   Debounced a 600ms para agrupar clics rápidos.                     */
-window._autoExportTimer = null;
-function _schedAutoExport(){
-  clearTimeout(window._autoExportTimer);
-  window._autoExportTimer = setTimeout(_autoExportToAnalizador, 600);
-}
-function _autoExportToAnalizador(){
-  try{
-    const payload = _buildSistemaPayload('sistema_auto');
-    localStorage.setItem('nmc-sistema-sync', JSON.stringify(payload));
-    // En la app combinada: aplicar directamente en el Analizador (los eventos
-    // `storage` no se disparan en el mismo documento).
-    if(typeof window.applySistemaSync==='function'){
-      window.applySistemaSync(payload, 'auto-combinado', {silent:true});
-    }
-  }catch(e){ console.warn('_autoExportToAnalizador:', e); }
+  // La dirección Sistema → Analizador se eliminó: ya no se auto-exporta
+  // un paquete de sync hacia el Analizador en cada guardado.
 }
 
 function loadEmployeeData(){

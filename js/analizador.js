@@ -589,13 +589,11 @@ function renderCorrelacion(){
 
   const pTipoDe = e => ((e.certExamen||"").trim()==="Aplica") ? "Knowledge Certification" : "SKILL ASSESSMENT";
 
-  // Completados = exámenes con registro en formularios ∪ marcados en el Sistema
+  // Completados = exámenes con registro en formularios (única fuente: el
+  // Analizador ya no recibe checks marcados a mano en el Sistema)
   function pCompMap(){
     const m={};
     ((A&&A.rowsCorr)||[]).forEach(r=>{ if(r.fr){ (m[r.emp.num]=m[r.emp.num]||new Set()).add(r.exam.reg); } });
-    Object.entries(window._sysChecks||{}).forEach(([num,regs])=>{
-      const s=m[num]=m[num]||new Set(); (regs||[]).forEach(x=>s.add(x));
-    });
     return m;
   }
 
@@ -620,11 +618,9 @@ function renderCorrelacion(){
   function paintPersonal(){
     const list=pFiltered();
     const cm=pCompMap();
-    const sa=window._sysAsignados||{};
     $("#pBody").innerHTML = list.map(e=>{
       const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
-      // Asignados: preferir dato autoritativo del Sistema, fallback al cálculo local
-      const asig = (typeof sa[e.num]==='number') ? sa[e.num] : st.asignados;
+      const asig = st.asignados;
       const comp=(cm[e.num]||{size:0}).size;
       const t=pTipoDe(e);
       const sel=window._pSel.has(e.num)?"checked":"";
@@ -651,8 +647,6 @@ function renderCorrelacion(){
       : "Sin selección — los reportes usan TODO el filtro actual";
   }
 
-  window._paintPersonal = paintPersonal;   // repintado externo tras sync ← Sistema
-
   // Objetivo de las acciones: seleccionados si hay, si no, todo el filtro
   const pTargets = () => {
     const list=pFiltered();
@@ -678,10 +672,9 @@ function renderCorrelacion(){
   $("#pBtnCSV").addEventListener("click",()=>{
     const rows=[["Numero","Empleado","Area","Puesto","Supervisor","Tipo","Asignados","Completados","Validacion"]];
     const cm=pCompMap();
-    const sa=window._sysAsignados||{};
     for(const e of pTargets()){
       const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
-      const asig=(typeof sa[e.num]==='number')?sa[e.num]:st.asignados;
+      const asig=st.asignados;
       const comp=(cm[e.num]||{size:0}).size;
       const val=(asig>0 && comp===asig)?"Validado":"En proceso";
       rows.push([e.num,e.nombre,e.area,e.puesto,e.supervisor,pTipoDe(e),asig,comp,val]);
@@ -722,8 +715,8 @@ function renderCorrelacion(){
     doc.autoTable({
       startY:84,
       head:[["#","Empleado","Area","Puesto","Supervisor","Tipo","Asig.","Compl.","Validacion"]],
-      body:(()=>{const cm=pCompMap();const sa=window._sysAsignados||{};return tgt.map(e=>{const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
-        const asig=(typeof sa[e.num]==='number')?sa[e.num]:st.asignados;
+      body:(()=>{const cm=pCompMap();return tgt.map(e=>{const st=(A&&A.empStats&&A.empStats[e.num])||{asignados:0,completados:0};
+        const asig=st.asignados;
         const comp=(cm[e.num]||{size:0}).size;
         const val=(asig>0 && comp===asig)?"Validado":"En proceso";
         return [e.num,pdfText(e.nombre),pdfText(e.area),pdfText(e.puesto),pdfText(e.supervisor),pdfText(pTipoDe(e)),asig,comp,val];});})(),
@@ -845,137 +838,13 @@ function renderRecomendaciones(){
 }
 
 /* ════════════════════════════════════════════════════════════════
-   SINCRONIZACIÓN ← sistema_entrenamiento_v11
-   El Sistema publica {statuses:[{num,estatus}], checks:[{num,regs}]}.
-   Aquí se aplica al maestro: estatus actualizados y exámenes marcados
-   (window._sysChecks) que se SUMAN a los completados por formularios
-   en el panel de Personal, para que ambos HTML muestren lo mismo.
-   Canales: localStorage['nmc-sistema-sync'] (auto al cargar, en vivo
-   entre pestañas, o botón 🔄) y archivo JSON (botón 📥, funciona
-   siempre, incluso con file://). Aplicación IDEMPOTENTE.
+   Dirección Sistema → Analizador ELIMINADA (2026-07-15).
+   El Analizador ya no recibe checks/estatus/asignados empujados por el
+   Sistema; solo cuenta lo que él mismo procesa de los formularios/Excel
+   (ver `runAnalysis`, `empStats`, `pCompMap`). La sincronización que
+   queda es unidireccional: Analizador → Sistema (`_autoSyncChecksToSistema`
+   más abajo, canal 'nmc-analyzer-sync').
    ════════════════════════════════════════════════════════════════ */
-window._sysChecks = window._sysChecks || {};   // num → [REG-…] marcados en el Sistema
-window._sysAsignados = window._sysAsignados || {};  // num → cantidad de exámenes asignados (autoritativo del Sistema)
-
-function _sysNormNum(v){ return _syncNormNum(v); } // delega en la única implementación (módulo "Sistema")
-
-// Sello visible de "última actualización": muestra cuándo el Sistema generó
-// el paquete (payload.generated) y cuándo el Analizador lo aplicó.
-function _fmtFechaHora(iso){
-  const d = iso ? new Date(iso) : new Date();
-  if(isNaN(d.getTime())) return '—';
-  return d.toLocaleString('es-MX', {
-    day:'2-digit', month:'2-digit', year:'numeric',
-    hour:'2-digit', minute:'2-digit', hour12:true
-  });
-}
-function updateLastSyncStamp(generatedIso){
-  const el = document.getElementById('lastSyncInfo');
-  if(!el) return;
-  const gen = _fmtFechaHora(generatedIso);
-  el.textContent = `🕒 Última actualización: ${gen}`;
-  el.title = `Datos generados por el Sistema: ${gen}\nAplicados en el Analizador: ${_fmtFechaHora(new Date().toISOString())}`;
-  try{ localStorage.setItem('nmc-sistema-sync-stamp', generatedIso||new Date().toISOString()); }catch(e){}
-}
-
-function _miniToast(msg){
-  let t=document.getElementById('miniToast');
-  if(!t){ t=document.createElement('div'); t.id='miniToast';
-    t.style.cssText='position:fixed;bottom:18px;right:18px;z-index:9999;background:#1b4f8a;color:#fff;'+
-      'padding:10px 16px;border-radius:8px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:420px';
-    document.body.appendChild(t); }
-  t.textContent=msg; t.style.display='block';
-  clearTimeout(t._h); t._h=setTimeout(()=>{ t.style.display='none'; }, 6000);
-}
-
-function applySistemaSync(payload, origen, opts){
-  opts = opts || {};
-  if(!payload || payload.v!==1 || !Array.isArray(payload.statuses)){
-    if(!opts.silent) alert('⚠️ Paquete de sincronización inválido (se esperaba el JSON del Sistema de Entrenamiento)');
-    return null;
-  }
-  const byNum={};
-  MASTER.emps.forEach(e=>{ byNum[_sysNormNum(e.num)]=e; });
-
-  let estatusCambiados=0, sinEmpleado=0;
-  window._sysAsignados={};
-  for(const s of payload.statuses){
-    const e=byNum[_sysNormNum(s.num)];
-    if(!e){ sinEmpleado++; continue; }
-    if(s.estatus && e.estatus!==s.estatus){ e.estatus=s.estatus; estatusCambiados++; }
-    if(typeof s.asignados==='number') window._sysAsignados[e.num]=s.asignados;
-    if(typeof s.cert_examen==='string') e.certExamen=s.cert_examen||'';
-    if(typeof s.cert_cofc==='string')   e.certCofc=s.cert_cofc||'';
-    if(typeof s.area==='string')       e.area=s.area;
-    if(typeof s.puesto==='string')     e.puesto=s.puesto;
-    if(typeof s.supervisor==='string') e.supervisor=s.supervisor;
-  }
-
-  let empConChecks=0, totalChecks=0;
-  window._sysChecks={};
-  for(const c of (payload.checks||[])){
-    const e=byNum[_sysNormNum(c.num)];
-    if(!e){ sinEmpleado++; continue; }
-    const regs=Array.from(new Set(c.regs||[]));
-    if(regs.length){ window._sysChecks[e.num]=regs; empConChecks++; totalChecks+=regs.length; }
-  }
-
-  // Persistir el paquete para re-aplicarlo en futuras cargas
-  try{ localStorage.setItem('nmc-sistema-sync', JSON.stringify(payload)); }catch(e){}
-
-  // Sello visible de última actualización (fecha y hora del paquete)
-  updateLastSyncStamp(payload.generated);
-
-  // Repintar lo afectado si ya hay un análisis en pantalla
-  // Repintar Reportes — funciona incluso sin haber ejecutado análisis
-  try{ if(window._paintPersonal) window._paintPersonal(); }catch(e){ console.warn('sync repintado:', e); }
-
-  const resumen={estatusCambiados, empConChecks, totalChecks, sinEmpleado,
-                 totalStatuses:payload.statuses.length};
-  if(!opts.silent || estatusCambiados || totalChecks){
-    _miniToast(`📥 Sincronización ${origen} desde el Sistema: ${estatusCambiados} estatus actualizados · `+
-      `${totalChecks} exámenes marcados de ${empConChecks} empleado(s)`+
-      (sinEmpleado?` · ⚠️ ${sinEmpleado} sin coincidencia`:''));
-  }
-  return resumen;
-}
-
-function _checkSistemaSync(manual){
-  let raw=null;
-  try{ raw=localStorage.getItem('nmc-sistema-sync'); }catch(e){}
-  if(!raw){
-    if(manual) alert('⚠️ No hay paquete del Sistema en este navegador.\n\nGenera uno con 📤 Enviar al Analizador en el Sistema de Entrenamiento, o usa 📥 Importar del Sistema (JSON).');
-    return;
-  }
-  try{
-    const payload=JSON.parse(raw);
-    const yaAplicado=localStorage.getItem('nmc-sistema-sync-applied')===payload.generated;
-    applySistemaSync(payload, manual?'manual':'automática', {silent:!manual && yaAplicado});
-    if(payload.generated){ try{ localStorage.setItem('nmc-sistema-sync-applied', payload.generated); }catch(e){} }
-  }catch(e){
-    console.warn('_checkSistemaSync:', e);
-    if(manual) alert('⚠️ El paquete del Sistema está dañado; usa 📥 Importar del Sistema (JSON)');
-  }
-}
-
-// Los botones manuales "🔄 Sincronizar desde Sistema" y "📥 Importar del
-// Sistema" se retiraron: la recepción es AUTOMÁTICA (empuje directo del
-// Sistema en la misma página + aplicación al cargar + evento storage entre
-// pestañas). `applySistemaSync` y `_checkSistemaSync` permanecen como motor.
-
-// Sincronización EN VIVO entre pestañas del mismo origen
-window.addEventListener('storage',ev=>{
-  if(ev.key==='nmc-sistema-sync' && ev.newValue) _checkSistemaSync(false);
-});
-
-// Aplicación automática al cargar la página
-_checkSistemaSync(false);
-
-// Restaurar el sello de última actualización de una sesión previa
-try{
-  const stamp=localStorage.getItem('nmc-sistema-sync-stamp');
-  if(stamp) updateLastSyncStamp(stamp);
-}catch(e){}
 
 
 /* ── Expose needed globals for Sistema↔Analizador integration ──
@@ -985,7 +854,6 @@ try{
    en esa única implementación, re-renderizando si hay un análisis en
    pantalla. Antes existía un `_rebuildMasterFromSistema`/`_rebuildMasterIndexes`
    duplicado (reasignaba MASTER); se eliminó por redundante. */
-window.applySistemaSync = applySistemaSync;
 window._refreshMasterFromSistema = function(){
   try{
     _refreshMasterFromSistema();   // reconstruye MASTER + índices (in situ)
