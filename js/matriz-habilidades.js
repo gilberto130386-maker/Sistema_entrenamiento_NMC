@@ -373,7 +373,27 @@
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a3'});
 
-    // jsPDF Helvetica no soporta Unicode — transliterar a ASCII
+    // Fuente Unicode embebida (subset de DejaVu Sans, cargada desde
+    // sm-pdf-font.js) — permite usar símbolos especiales (• ● ✓ ✔ ✗ ✘ ★ ☆ ⚠
+    // → ← etc.) en el contenido de celda y la leyenda, algo que las 14
+    // fuentes estándar de PDF (Helvetica/Times/Courier) no soportan. No
+    // incluye emoji a color (esos requieren tablas de color que jsPDF no
+    // puede incrustar); para eso solo se ve el glifo en negro si existe.
+    const SM_FONT_NAME = 'SMSymbols';
+    let hasSymbolFont = false;
+    if(window.SM_PDF_FONT_REGULAR){
+      try {
+        doc.addFileToVFS('SMSymbols-Regular.ttf', window.SM_PDF_FONT_REGULAR);
+        doc.addFont('SMSymbols-Regular.ttf', SM_FONT_NAME, 'normal');
+        if(window.SM_PDF_FONT_BOLD){
+          doc.addFileToVFS('SMSymbols-Bold.ttf', window.SM_PDF_FONT_BOLD);
+          doc.addFont('SMSymbols-Bold.ttf', SM_FONT_NAME, 'bold');
+        }
+        hasSymbolFont = true;
+      } catch(e){ hasSymbolFont = false; }
+    }
+
+    // jsPDF Helvetica/Times/Courier no soportan Unicode — transliterar a ASCII
     function ascii(s){
       return String(s ?? '')
         .normalize('NFD').replace(/[̀-ͯ]/g,'')
@@ -384,11 +404,12 @@
         .replace(/[^\x20-\x7E]/g,'');
     }
 
-    // Símbolo de celda seguro para PDF: si el símbolo configurado (ej. viñetas,
-    // emojis) desaparece por completo al transliterar a ASCII, la celda queda
-    // vacía sin avisar — se usa un respaldo legible en su lugar para que la
-    // información siga pintándose (el color de fondo ya distingue el estado).
+    // Símbolo de celda para PDF: si la fuente Unicode embebida cargó, se usa
+    // el texto tal cual (el glifo se dibuja con SM_FONT_NAME). Si por algún
+    // motivo la fuente no está disponible, se recurre a la transliteración
+    // ASCII con un respaldo legible para que la celda no quede vacía.
     function pdfSafeSymbol(raw, fallback){
+      if(hasSymbolFont) return String(raw ?? '');
       const a = ascii(raw);
       if(a.trim()==='' && String(raw||'').trim()!=='') return fallback;
       return a;
@@ -485,6 +506,7 @@
         // radio casi cero: algunos motores de impresión/PDF fallan al rasterizar
         // curvas Bézier degeneradas y la caja terminaba sin imprimirse.
         doc.setFontSize(6.5);
+        doc.setFont(hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily, 'normal');
         doc.setTextColor(0,0,0);
         doc.setDrawColor(0,0,0);
         doc.setLineWidth(0.1);
@@ -700,6 +722,7 @@
             // examCellKind en vez del texto de la celda para evitar ambigüedad.
             if(ci >= 5 && ri < totalDataRows){
               const kind = examCellKind[ri][ci-5];
+              data.cell.styles.font = hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily;
               if(kind==='ok'){
                 data.cell.styles.fillColor = smHexToRgb(cfg.legend[0].color);
                 data.cell.styles.textColor = [46,125,50];
