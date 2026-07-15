@@ -2415,8 +2415,55 @@ function _printOneCertificate(e){
   doc.save(_certFileName(e));
 }
 
-// Imprime y descarga los certificados indicados como archivos separados
-// (un solo id = impresión individual; varios ids = cada uno por su cuenta).
+// Combina varios empleados en un único documento (una página de certificado +
+// su anexo por cada uno) para poder abrir UNA sola ventana de impresión sin
+// que el navegador bloquee ventanas emergentes al abrir muchas a la vez.
+function _buildCertificatesDoc(emps){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+  emps.forEach((e, i) => _renderCertificatePages(doc, e, {addPageBefore: i > 0}));
+  return doc;
+}
+
+function _printCombinedCertificates(emps){
+  const doc = _buildCertificatesDoc(emps);
+  doc.autoPrint();
+  const url = doc.output('bloburl');
+  const win = window.open(url, '_blank');
+  if(!win) showToast('⚠️ El navegador bloqueó la ventana emergente. Habilita las ventanas emergentes para imprimir.');
+}
+
+// Descarga cada certificado como PDF independiente dentro de un único .zip,
+// evitando el límite del navegador para descargas automáticas múltiples.
+async function _downloadCertificatesZip(emps){
+  if(!window.JSZip){
+    alert('⚠️ No se pudo cargar la librería ZIP (requiere conexión a internet la primera vez).');
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const zip = new JSZip();
+  emps.forEach(e => {
+    const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+    _renderCertificatePages(doc, e, {addPageBefore:false});
+    zip.file(_certFileName(e), doc.output('blob'));
+  });
+
+  const zipBlob = await zip.generateAsync({type:'blob'});
+  const url = URL.createObjectURL(zipBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Certificados_Aprobados_${emps.length}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+// Imprime y descarga los certificados indicados:
+// - un solo id  → impresión y descarga individual (como antes).
+// - varios ids → una sola ventana de impresión combinada + un .zip con cada
+//   certificado como PDF independiente (evita los bloqueos del navegador por
+//   abrir muchas ventanas/descargas automáticas a la vez).
 function printCertificates(ids){
   if(!(window.jspdf && window.jspdf.jsPDF)){
     alert('⚠️ No se pudo cargar la librería de PDF (requiere conexión a internet la primera vez).');
@@ -2425,7 +2472,13 @@ function printCertificates(ids){
   const emps = ids.map(id => EMPLOYEES.find(x => x.id === id)).filter(e => e && e.estatus === 'Aprobado');
   if(!emps.length){ showToast('⚠️ No hay certificados de empleados aprobados para imprimir'); return; }
 
-  emps.forEach(e => _printOneCertificate(e));
+  if(emps.length === 1){
+    _printOneCertificate(emps[0]);
+    return;
+  }
+
+  _printCombinedCertificates(emps);
+  _downloadCertificatesZip(emps);
 }
 
 // ── Modal "Imprimir Certificados": lista de empleados con estatus Aprobado ──
