@@ -1509,17 +1509,23 @@
         <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-legend-shape','rounded',this)">▢ Redondeado</button>
         <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-legend-shape','circle',this)">⬤ Círculo</button>
       </div>
+      <div style="display:flex;gap:.6rem;font-size:.65rem;color:var(--text3);margin-bottom:.3rem;padding-left:calc(28px + 46px + 1.2rem)">
+        <span style="flex:1">Contenido de la celda (HTML y PDF) y etiqueta de la leyenda</span>
+      </div>
       <div style="display:flex;flex-direction:column;gap:.5rem">
         <div style="display:flex;align-items:center;gap:.6rem">
           <input id="smpdf-leg-color-0" type="color" value="#c8e6c9" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+          <input id="smpdf-leg-symbol-0" class="status-sel" type="text" maxlength="6" value="OK" title="Contenido de la celda" style="width:46px;text-align:center;flex-shrink:0">
           <input id="smpdf-leg-label-0" class="status-sel" type="text" maxlength="40" value="OK = Aprobado" style="flex:1">
         </div>
         <div style="display:flex;align-items:center;gap:.6rem">
           <input id="smpdf-leg-color-1" type="color" value="#fff9c4" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+          <input id="smpdf-leg-symbol-1" class="status-sel" type="text" maxlength="6" value="X" title="Contenido de la celda" style="width:46px;text-align:center;flex-shrink:0">
           <input id="smpdf-leg-label-1" class="status-sel" type="text" maxlength="40" value="X = Pendiente" style="flex:1">
         </div>
         <div style="display:flex;align-items:center;gap:.6rem">
           <input id="smpdf-leg-color-2" type="color" value="#ffffff" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+          <input id="smpdf-leg-symbol-2" class="status-sel" type="text" maxlength="6" value="" title="Contenido de la celda" style="width:46px;text-align:center;flex-shrink:0">
           <input id="smpdf-leg-label-2" class="status-sel" type="text" maxlength="40" value="No aplica" style="flex:1">
         </div>
       </div>

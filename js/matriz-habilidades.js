@@ -76,6 +76,7 @@
   function smRenderMatrix(){
     smBuildAreaFilter();
     smRenderLegend();
+    const pdfCfg = smGetPdfConfig();
     const container = document.getElementById('sm-table-container');
     const filter = document.getElementById('sm-area-filter').value;
 
@@ -141,12 +142,12 @@
         ds.exams.forEach(ex=>{
           if(empExamIds.has(ex.id)){
             if(checks[ex.id]){
-              html += `<td class="sm-cell-aprobado" title="${esc(ex.tema)} — Aprobado">✓</td>`;
+              html += `<td class="sm-cell-aprobado" style="background:${esc(pdfCfg.legend[0].color)}!important" title="${esc(ex.tema)} — Aprobado">${esc(pdfCfg.legend[0].symbol)}</td>`;
             } else {
-              html += `<td class="sm-cell-pendiente" title="${esc(ex.tema)} — Pendiente">X</td>`;
+              html += `<td class="sm-cell-pendiente" style="background:${esc(pdfCfg.legend[1].color)}!important" title="${esc(ex.tema)} — Pendiente">${esc(pdfCfg.legend[1].symbol)}</td>`;
             }
           } else {
-            html += '<td class="sm-cell-empty"></td>';
+            html += `<td class="sm-cell-empty" style="background:${esc(pdfCfg.legend[2].color)}!important"></td>`;
           }
         });
         html += '</tr>';
@@ -217,10 +218,11 @@
     headerSize: 9,
     cellSize: 5.5,
     legendShape: 'square',   // square | rounded | circle
+    // symbol = contenido mostrado en la celda de examen, idéntico en HTML y PDF
     legend: [
-      {label:'OK = Aprobado', color:'#c8e6c9'},
-      {label:'X = Pendiente', color:'#fff9c4'},
-      {label:'No aplica',     color:'#ffffff'}
+      {label:'OK = Aprobado', color:'#c8e6c9', symbol:'OK'},
+      {label:'X = Pendiente', color:'#fff9c4', symbol:'X'},
+      {label:'No aplica',     color:'#ffffff', symbol:''}
     ],
     borderColor: '#b4bfda',
     borderWidth: 0.15
@@ -237,9 +239,11 @@
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SM_PDF_CONFIG_KEY)||'null'); } catch(e){}
     const cfg = Object.assign({}, SM_PDF_CONFIG_DEFAULT, saved||{});
-    cfg.legend = (saved && Array.isArray(saved.legend) && saved.legend.length===3)
-      ? saved.legend
-      : SM_PDF_CONFIG_DEFAULT.legend.map(l=>({...l}));
+    // Merge por-item para tolerar configs guardadas antes de agregar el campo "symbol"
+    cfg.legend = SM_PDF_CONFIG_DEFAULT.legend.map((def,i)=>{
+      const savedItem = (saved && Array.isArray(saved.legend) && saved.legend[i]) || {};
+      return Object.assign({}, def, savedItem);
+    });
     return cfg;
   }
 
@@ -266,6 +270,7 @@
     cfg.legend.forEach((it,i)=>{
       document.getElementById(`smpdf-leg-color-${i}`).value = it.color;
       document.getElementById(`smpdf-leg-label-${i}`).value = it.label;
+      document.getElementById(`smpdf-leg-symbol-${i}`).value = it.symbol;
     });
 
     const setGroup = (hiddenId, val)=>{
@@ -301,7 +306,8 @@
       legendShape: document.getElementById('smpdf-legend-shape').value,
       legend: [0,1,2].map(i=>({
         label: document.getElementById(`smpdf-leg-label-${i}`).value || SM_PDF_CONFIG_DEFAULT.legend[i].label,
-        color: document.getElementById(`smpdf-leg-color-${i}`).value
+        color: document.getElementById(`smpdf-leg-color-${i}`).value,
+        symbol: document.getElementById(`smpdf-leg-symbol-${i}`).value
       })),
       borderColor: document.getElementById('smpdf-border-color').value,
       borderWidth: parseFloat(document.getElementById('smpdf-border-width').value)
@@ -574,20 +580,27 @@
       // Build table data — includes No. Emp column
       const head = [['#', 'No. Emp', 'Nombre / Name', 'Puesto / Title', 'Estatus', ...ds.exams.map(()=>'')]];
 
+      // examCellKind[rowIndex][examIndex] = 'ok'|'pending'|'na' — evita ambigüedad
+      // en didParseCell cuando el símbolo configurado coincide entre estados.
+      const examCellKind = [];
       const body = [];
       ds.emps.forEach((emp, i)=>{
         const empExamIds = new Set(emp.exam_ids||[]);
         const checks = (window._examChecks && window._examChecks[emp.id]) || {};
+        const kinds = [];
+        const examTexts = ds.exams.map(ex=>{
+          if(!empExamIds.has(ex.id)){ kinds.push('na'); return ascii(cfg.legend[2].symbol); }
+          if(checks[ex.id]){ kinds.push('ok'); return ascii(cfg.legend[0].symbol); }
+          kinds.push('pending'); return ascii(cfg.legend[1].symbol);
+        });
+        examCellKind.push(kinds);
         body.push([
           i+1,
           ascii(emp.numero||''),
           ascii(emp.nombre||''),
           ascii(emp.puesto||''),
           ascii(emp.estatus||'-'),
-          ...ds.exams.map(ex=>{
-            if(!empExamIds.has(ex.id)) return '';
-            return checks[ex.id] ? 'OK' : 'X';
-          })
+          ...examTexts
         ]);
       });
 
@@ -666,16 +679,21 @@
               if(st==='Aprobado'){ data.cell.styles.fillColor=[187,222,251]; data.cell.styles.textColor=[13,71,161]; data.cell.styles.fontStyle='bold'; }
               else if(st==='Pendiente'){ data.cell.styles.fillColor=[255,249,196]; data.cell.styles.textColor=[245,127,23]; data.cell.styles.fontStyle='bold'; }
             }
-            // Exam cells (index 5+)
+            // Exam cells (index 5+) — color y símbolo vienen de la configuración
+            // de leyenda (misma fuente que usa el HTML), identificados por
+            // examCellKind en vez del texto de la celda para evitar ambigüedad.
             if(ci >= 5 && ri < totalDataRows){
-              if(data.cell.raw === 'OK'){
-                data.cell.styles.fillColor = [200,230,201];
+              const kind = examCellKind[ri][ci-5];
+              if(kind==='ok'){
+                data.cell.styles.fillColor = smHexToRgb(cfg.legend[0].color);
                 data.cell.styles.textColor = [46,125,50];
                 data.cell.styles.fontStyle = 'bold';
-              } else if(data.cell.raw === 'X'){
-                data.cell.styles.fillColor = [255,249,196];
+              } else if(kind==='pending'){
+                data.cell.styles.fillColor = smHexToRgb(cfg.legend[1].color);
                 data.cell.styles.textColor = [245,127,23];
                 data.cell.styles.fontStyle = 'bold';
+              } else {
+                data.cell.styles.fillColor = smHexToRgb(cfg.legend[2].color);
               }
             }
             // Summary rows
