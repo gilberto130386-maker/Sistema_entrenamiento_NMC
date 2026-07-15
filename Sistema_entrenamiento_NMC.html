@@ -204,6 +204,14 @@
                border-color:var(--accent);color:var(--accent)">
         📄 Reporte PDF
       </button>
+      <!-- 🖨️ Ventana de impresión de certificados (individual o todos los Aprobado) -->
+      <button class="btn btn-s btn-sm" id="btn-emp-cert-print"
+        onclick="openCertPrintWindow()"
+        title="Imprimir certificados de aprobación — individual o de todo el personal aprobado"
+        style="display:flex;align-items:center;gap:.35rem;white-space:nowrap;
+               border-color:var(--green);color:var(--green)">
+        🖨️ Certificados
+      </button>
       <!-- ➕ Alta de personal -->
       <button class="btn btn-s btn-sm" onclick="openAltaPanel()"
         title="Dar de alta nuevo empleado"
@@ -1419,6 +1427,49 @@
              font-family:var(--fb);font-size:.83rem;font-weight:700;cursor:pointer;
              display:flex;align-items:center;gap:.4rem">
       📄 Generar PDF
+    </button>
+  </div>
+</div>
+</div>
+
+<!-- IMPRIMIR CERTIFICADOS — individual o masivo (empleados Aprobado) -->
+<div class="modal-overlay" id="cert-print-modal" role="dialog" aria-modal="true" aria-label="Imprimir certificados"
+     onclick="if(event.target.id==='cert-print-modal')event.target.classList.remove('open')">
+<div class="modal" style="max-width:640px">
+  <div class="modal-hdr" style="border-bottom:1px solid var(--border);padding-bottom:1rem">
+    <div>
+      <div style="font-size:.7rem;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem">🏅 Certificados de Aprobación</div>
+      <div class="modal-title">Imprimir Certificados</div>
+      <div style="font-size:.73rem;color:var(--text3);margin-top:.25rem" id="cert-sub"></div>
+    </div>
+    <button class="modal-close" aria-label="Cerrar impresión de certificados" onclick="document.getElementById('cert-print-modal').classList.remove('open')">✕</button>
+  </div>
+  <div class="modal-body">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.7rem;margin-bottom:.75rem;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--text2);cursor:pointer;font-weight:600">
+        <input type="checkbox" id="cert-select-all" onchange="_certToggleAll(this.checked)"> Seleccionar todos
+      </label>
+      <div id="cert-count" style="font-size:.78rem;color:var(--green);font-weight:600"></div>
+    </div>
+    <div id="cert-list" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:9px"></div>
+  </div>
+  <div style="padding:1rem 1.4rem;border-top:1px solid var(--border);display:flex;gap:.7rem;justify-content:flex-end;flex-wrap:wrap;background:var(--bg2)">
+    <button onclick="document.getElementById('cert-print-modal').classList.remove('open')"
+      style="padding:.5rem 1.1rem;border-radius:7px;border:1.5px solid var(--border2);background:none;
+             color:var(--text2);font-family:var(--fb);font-size:.83rem;font-weight:600;cursor:pointer">
+      Cancelar
+    </button>
+    <button onclick="printAllApprovedCertificates()"
+      style="padding:.5rem 1.3rem;border-radius:7px;border:1.5px solid var(--green);background:none;color:var(--green);
+             font-family:var(--fb);font-size:.83rem;font-weight:700;cursor:pointer;
+             display:flex;align-items:center;gap:.4rem">
+      🖨️ Imprimir todos
+    </button>
+    <button onclick="printSelectedCertificates()"
+      style="padding:.5rem 1.3rem;border-radius:7px;border:none;background:var(--green);color:#fff;
+             font-family:var(--fb);font-size:.83rem;font-weight:700;cursor:pointer;
+             display:flex;align-items:center;gap:.4rem">
+      🖨️ Imprimir seleccionados
     </button>
   </div>
 </div>

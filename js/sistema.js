@@ -1950,12 +1950,8 @@ function openEmpModal(id){
 // ════════════════════════════════════════════════════════════════
 // CERTIFICADO DE APROBACIÓN PDF
 // ════════════════════════════════════════════════════════════════
-function generateCertificate(id){
-  const e = EMPLOYEES.find(x=>x.id===id);
-  if(!e || e.estatus !== 'Aprobado') return;
-
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+function _renderCertificatePages(doc, e, opts){
+  if(opts && opts.addPageBefore) doc.addPage('letter', 'landscape');
 
   const W  = doc.internal.pageSize.getWidth();   // 279.4
   const H  = doc.internal.pageSize.getHeight();  // 215.9
@@ -2379,12 +2375,99 @@ function generateCertificate(id){
 
   // ── Actualizar total de páginas en página 1 (no es posible retroactivo en jsPDF básico,
   //    pero sí podemos anotar el folio en el pie que ya tiene el texto correcto) ──
+}
 
-  // ════════════════════════════════════════════════════════════════
-  // GUARDAR
-  // ════════════════════════════════════════════════════════════════
+function generateCertificate(id){
+  const e = EMPLOYEES.find(x=>x.id===id);
+  if(!e || e.estatus !== 'Aprobado') return;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+  _renderCertificatePages(doc, e, {addPageBefore:false});
+
+  const nombre   = e.nombre.replace(/,\s*/,' ').trim();
   const safeName = nombre.replace(/[^a-zA-Z0-9\s]/g,'').replace(/\s+/g,'_').substring(0,40);
   doc.save(`Certificado_${safeName}_${e.id}.pdf`);
+}
+
+// ════════════════════════════════════════════════════════════════
+// VENTANA DE IMPRESIÓN DE CERTIFICADOS — individual o masiva
+// (empleados con estatus Aprobado)
+// ════════════════════════════════════════════════════════════════
+function _buildCertificatesDoc(emps){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'letter' });
+  emps.forEach((e, i) => _renderCertificatePages(doc, e, {addPageBefore: i > 0}));
+  return doc;
+}
+
+// Abre el diálogo de impresión del navegador con los certificados indicados
+// (un solo empleado = impresión individual; varios = impresión masiva).
+function printCertificates(ids){
+  if(!(window.jspdf && window.jspdf.jsPDF)){
+    alert('⚠️ No se pudo cargar la librería de PDF (requiere conexión a internet la primera vez).');
+    return;
+  }
+  const emps = ids.map(id => EMPLOYEES.find(x => x.id === id)).filter(e => e && e.estatus === 'Aprobado');
+  if(!emps.length){ showToast('⚠️ No hay certificados de empleados aprobados para imprimir'); return; }
+
+  const doc = _buildCertificatesDoc(emps);
+  doc.autoPrint();
+  const url = doc.output('bloburl');
+  const win = window.open(url, '_blank');
+  if(!win) showToast('⚠️ El navegador bloqueó la ventana emergente. Habilita las ventanas emergentes para imprimir.');
+}
+
+// ── Modal "Imprimir Certificados": lista de empleados con estatus Aprobado ──
+function openCertPrintWindow(){
+  const approved = EMPLOYEES.filter(e => e.estatus === 'Aprobado')
+    .sort((a, b) => fmtName(a.nombre).localeCompare(fmtName(b.nombre)));
+
+  document.getElementById('cert-sub').textContent =
+    `${approved.length} empleado${approved.length === 1 ? '' : 's'} con estatus Aprobado`;
+
+  const list = document.getElementById('cert-list');
+  list.innerHTML = approved.length ? approved.map(e => `
+    <div style="display:flex;align-items:center;gap:.65rem;padding:.55rem .8rem;border-bottom:1px solid var(--border)">
+      <input type="checkbox" class="cert-chk" value="${esc(e.id)}" onchange="_certUpdateCount()">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.83rem;font-weight:500">${esc(fmtName(e.nombre))}</div>
+        <div style="font-size:.7rem;color:var(--text3)">${esc(e.numero)} · ${esc(e.puesto)} · ${esc(e.area)}</div>
+      </div>
+      <button class="btn btn-s btn-sm" onclick="printCertificates(['${esc(e.id)}'])"
+        title="Imprimir solo el certificado de ${esc(fmtName(e.nombre))}" style="white-space:nowrap">
+        🖨️ Imprimir
+      </button>
+    </div>`).join('')
+    : `<div style="padding:1.2rem;text-align:center;color:var(--text3);font-size:.83rem">No hay empleados con estatus &quot;Aprobado&quot; actualmente.</div>`;
+
+  document.getElementById('cert-select-all').checked = false;
+  _certUpdateCount();
+  document.getElementById('cert-print-modal').classList.add('open');
+}
+
+function _certToggleAll(checked){
+  document.querySelectorAll('.cert-chk').forEach(c => c.checked = checked);
+  _certUpdateCount();
+}
+
+function _certUpdateCount(){
+  const all = document.querySelectorAll('.cert-chk');
+  const n   = document.querySelectorAll('.cert-chk:checked').length;
+  document.getElementById('cert-count').textContent = n ? `${n} seleccionado${n === 1 ? '' : 's'}` : '';
+  document.getElementById('cert-select-all').checked = all.length > 0 && n === all.length;
+}
+
+function printSelectedCertificates(){
+  const ids = [...document.querySelectorAll('.cert-chk:checked')].map(c => c.value);
+  if(!ids.length){ showToast('⚠️ Selecciona al menos un empleado'); return; }
+  printCertificates(ids);
+}
+
+function printAllApprovedCertificates(){
+  const ids = [...document.querySelectorAll('.cert-chk')].map(c => c.value);
+  if(!ids.length){ showToast('⚠️ No hay empleados aprobados para imprimir'); return; }
+  printCertificates(ids);
 }
 
 // ════════════════════════════════════════════════════════════════
