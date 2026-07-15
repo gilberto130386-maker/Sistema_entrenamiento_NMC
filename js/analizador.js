@@ -14,14 +14,9 @@ function norm(s){ if(!s) return "";
   return String(s).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
 function tokens(s){ return new Set(norm(s).split(" ").filter(t=>t.length>1)); }
-function jaccard(a,b){ if(!a.size||!b.size) return 0;
-  let inter=0; for(const t of a) if(b.has(t)) inter++;
-  return inter/(a.size+b.size-inter); }
 function containment(a,b){ if(!a.size||!b.size) return 0;
   let inter=0; for(const t of a) if(b.has(t)) inter++;
   return inter/Math.min(a.size,b.size); }
-function nameScore(a,b){ const ta=tokens(a),tb=tokens(b);
-  return Math.round(100*(0.5*jaccard(ta,tb)+0.5*containment(ta,tb))); }
 function pct(x,d=1){ return (x*100).toFixed(d)+"%"; }
 // esc() delega en la implementación global definida en el módulo "Sistema" (más arriba en el documento)
 function pearson(xs,ys){
@@ -207,24 +202,16 @@ $$(".tab").forEach(t=>t.addEventListener("click",()=>{
   $("#pane-"+t.dataset.t).classList.add("active");
 }));
 
-function matchEmployee(nm, em, thr){
+function matchEmployee(nm, em){
   if(em && EMP_BY_EMAIL[em]) return {emp:EMP_BY_EMAIL[em], method:"email", score:100};
-  if(!nm) return {emp:null,method:"sin datos",score:0};
-  let best=null,bestS=0;
-  for(const e of MASTER.emps){
-    const s=nameScore(nm,e.nombre);
-    if(s>bestS){bestS=s;best=e;}
-  }
-  if(bestS===100) return {emp:best,method:"nombre exacto",score:100};
-  if(bestS>=thr) return {emp:best,method:"nombre difuso",score:bestS};
-  return {emp:null,method:"no encontrado",score:bestS};
+  if(!nm && !em) return {emp:null,method:"sin datos",score:0};
+  return {emp:null,method:"no encontrado",score:0};
 }
 
 function runAnalysis(){
   _refreshMasterFromSistema();
 
   const passThr=(+$("#passThreshold").value||80)/100;
-  const nameThr=+$("#nameThreshold").value||62;
 
   /* ---- procesar cada archivo ---- */
   const records=[]; // {file, examReg, exam, nombre, email, points, maxPts, pctScore, match{emp,method,score}, dup}
@@ -241,7 +228,7 @@ function runAnalysis(){
       quality.filasTotales++;
       if(!r.nombre&&!r.email) quality.vacioNombre++;
       if(r.points===null) quality.vacioPuntos++;
-      const m=matchEmployee(r.nombre,r.email,nameThr);
+      const m=matchEmployee(r.nombre,r.email);
       if(!m.emp && (r.nombre||r.email)) quality.noEncontrados++;
       const key=(m.emp?m.emp.num:norm(r.nombre)||r.email)+"|"+(exam?exam.reg:f.name);
       let dup=false;
@@ -317,7 +304,7 @@ function runAnalysis(){
   const totAprob=Object.values(empStats).reduce((a,s)=>a+s.aprobados,0);
 
   A={records,best,rowsCorr,empStats,quality,soloForms,soloMaestro,byArea,bySup,byPuesto,byCurso,
-     passThr,nameThr,totAsig,totComp,totAprob,filesNoExam};
+     passThr,totAsig,totComp,totAprob,filesNoExam};
   renderAll();
   _autoSyncChecksToSistema(); // ► auto-sync checks al Sistema al ejecutar análisis
   $("#results").style.display="block";
@@ -448,10 +435,9 @@ function renderDiccionario(){
   h+=`</tbody></table></div></div>
   <div class="card"><h2>🔑 Paso 2 · Claves de unión</h2>
   <ul class="clean">
-    <li><b>Clave primaria propuesta:</b> Correo electrónico (coincidencia exacta, insensible a mayúsculas). Es el identificador más confiable entre formularios y maestro.</li>
-    <li><b>Clave secundaria:</b> Nombre normalizado (mayúsculas, sin acentos, sin puntuación) comparado por conjunto de palabras (Jaccard + contención), tolerante al orden "Apellido, Nombre" vs "Nombre Apellido".</li>
+    <li><b>Clave única de coincidencia:</b> Correo electrónico (coincidencia exacta, insensible a mayúsculas). Es el único criterio para vincular un registro de formulario con un empleado del maestro y calificarlo en el Sistema; el nombre ya no se usa como respaldo.</li>
     <li><b>Clave del examen:</b> el nombre del archivo / hoja se compara contra "Tema de Entrenamiento" del maestro; si la confianza es baja, se asigna manualmente.</li>
-    <li><b>Riesgos de calidad:</b> homónimos, nombres incompletos, correos personales en lugar de corporativos, y exportaciones sin columna de identificación. Cada coincidencia difusa reporta su % de similitud para trazabilidad.</li>
+    <li><b>Riesgos de calidad:</b> correos personales en lugar de corporativos, correos mal escritos, y exportaciones sin columna de correo. Todo registro sin email exacto en el maestro se reporta como "no encontrado", aunque el nombre coincida.</li>
   </ul>
   <div class="note"><b>Nota de transparencia:</b> el puntaje máximo de cada examen no viene en la exportación de Forms, por lo que se estima como el <b>valor máximo observado</b> en la columna de puntos de cada archivo. Si nadie obtuvo el puntaje perfecto en un archivo, el % estará sobreestimado. Este supuesto se declara aquí explícitamente.</div>
   </div>`;
@@ -481,12 +467,12 @@ function renderCalidad(){
   h+=`<div class="card"><h2>Registros sin coincidencia en el maestro (${nf.length})</h2>`;
   if(!nf.length) h+=`<div class="empty">Todos los registros con datos coincidieron con el maestro ✔</div>`;
   else{
-    h+=`<div class="tscroll" style="max-height:340px"><table><thead><tr><th>Archivo</th><th>Nombre en formulario</th><th>Correo</th><th>Mejor similitud</th></tr></thead><tbody>`;
+    h+=`<div class="tscroll" style="max-height:340px"><table><thead><tr><th>Archivo</th><th>Nombre en formulario</th><th>Correo</th></tr></thead><tbody>`;
     for(const r of nf.slice(0,500)){
-      h+=`<tr><td class="small">${esc(r.file)}</td><td>${esc(r.nombre)||"—"}</td><td>${esc(r.email)||"—"}</td><td>${r.match.score}%</td></tr>`;
+      h+=`<tr><td class="small">${esc(r.file)}</td><td>${esc(r.nombre)||"—"}</td><td>${esc(r.email)||"—"}</td></tr>`;
     }
     h+=`</tbody></table></div>
-    <div class="note">Revisar manualmente: pueden ser personal dado de baja, nombres mal escritos o personas ajenas a la lista maestra. Puedes bajar el umbral de similitud y reanalizar si ves coincidencias obvias.</div>`;
+    <div class="note">Revisar manualmente: pueden ser personal dado de baja, correos ausentes o mal escritos, o personas ajenas a la lista maestra. Corrige el correo en el formulario o en el maestro y reanaliza.</div>`;
   }
   h+=`</div>`;
   $("#pane-calidad").innerHTML=h;
@@ -825,7 +811,7 @@ function renderRecomendaciones(){
   if(areasBajas.length) recs.push(["Alta",`Intervención dirigida en áreas rezagadas: ${areasBajas.map(([k])=>k).join(", ")}`,"Eleva el cumplimiento global de forma focalizada","Medio"]);
   if(A.quality.noEncontrados) recs.push(["Alta",`Depurar los ${A.quality.noEncontrados} registros sin coincidencia (bajas, homónimos, errores de captura)`,"Mejora la trazabilidad y la confianza del indicador","Bajo"]);
   if(A.filesNoExam.length) recs.push(["Alta",`Asignar examen a los ${A.filesNoExam.length} archivos no identificados y reanalizar`,"Evita subreporte de cumplimiento","Bajo"]);
-  recs.push(["Media","Estandarizar la exportación de Forms: incluir siempre Email corporativo y puntaje máximo del examen","Elimina coincidencias difusas y el supuesto de puntaje máximo observado","Bajo"]);
+  recs.push(["Media","Estandarizar la exportación de Forms: incluir siempre Email corporativo y puntaje máximo del examen","El email es ahora la única clave de coincidencia; sin él el registro no se vincula al maestro ni califica en el Sistema","Bajo"]);
   if(A.quality.duplicados) recs.push(["Media",`Definir política formal para reintentos (hoy: ${A.quality.duplicados} duplicados, se toma el mejor intento)`,"Criterio único y auditable","Bajo"]);
   recs.push(["Media","Cargar este análisis periódicamente (semanal/mensual) y dar seguimiento al KPI de cumplimiento","Tendencia visible y detección temprana de rezago","Bajo"]);
   recs.push(["Baja","Agregar fecha de vigencia/vencimiento por examen en el maestro para detectar certificaciones vencidas","Hoy no es posible calcular vencidos: el maestro no incluye vigencias (limitación declarada)","Medio"]);
@@ -833,7 +819,7 @@ function renderRecomendaciones(){
   <table><thead><tr><th>Prioridad</th><th>Acción</th><th>Impacto</th><th>Esfuerzo</th></tr></thead><tbody>
   ${recs.map(([p,a,i,e])=>`<tr><td class="sev-${p.toLowerCase()}">${p}</td><td>${a}</td><td class="small">${i}</td><td>${e}</td></tr>`).join("")}
   </tbody></table>
-  <div class="note"><b>Limitaciones declaradas (regla de veracidad):</b> (1) los formularios no incluyen fecha de vigencia, por lo que <b>no es posible determinar entrenamientos vencidos</b> con los datos disponibles; (2) el puntaje máximo por examen se estima del máximo observado; (3) las coincidencias difusas de nombre se reportan con su % de similitud y deben validarse cuando sea &lt; 80%. Cumplimiento global actual: ${pct(cumpl)}.</div></div>`;
+  <div class="note"><b>Limitaciones declaradas (regla de veracidad):</b> (1) los formularios no incluyen fecha de vigencia, por lo que <b>no es posible determinar entrenamientos vencidos</b> con los datos disponibles; (2) el puntaje máximo por examen se estima del máximo observado; (3) la coincidencia con el maestro requiere email exacto (insensible a mayúsculas); los registros sin email o con un email que no está en el maestro se marcan como "no encontrado" y no califican en el Sistema, aun si el nombre coincide. Cumplimiento global actual: ${pct(cumpl)}.</div></div>`;
   $("#pane-recomendaciones").innerHTML=h;
 }
 
