@@ -75,6 +75,8 @@
 
   function smRenderMatrix(){
     smBuildAreaFilter();
+    smRenderLegend();
+    const pdfCfg = smGetPdfConfig();
     const container = document.getElementById('sm-table-container');
     const filter = document.getElementById('sm-area-filter').value;
 
@@ -137,15 +139,16 @@
         html += `<td class="sm-title">${esc(emp.puesto)||''}</td>`;
         const stCls = emp.estatus==='Aprobado'?'sm-cell-aprobado': emp.estatus==='Pendiente'?'sm-cell-pendiente':'sm-cell-empty';
         html += `<td class="${stCls}" style="font-size:.65rem;white-space:nowrap">${esc(emp.estatus)||'—'}</td>`;
+        const symStyle = `font-size:${pdfCfg.symbolSize}px`;
         ds.exams.forEach(ex=>{
           if(empExamIds.has(ex.id)){
             if(checks[ex.id]){
-              html += `<td class="sm-cell-aprobado" title="${esc(ex.tema)} — Aprobado">✓</td>`;
+              html += `<td class="sm-cell-aprobado" style="background:${esc(pdfCfg.legend[0].color)}!important;${symStyle}" title="${esc(ex.tema)} — Aprobado">${esc(pdfCfg.legend[0].symbol)}</td>`;
             } else {
-              html += `<td class="sm-cell-pendiente" title="${esc(ex.tema)} — Pendiente">X</td>`;
+              html += `<td class="sm-cell-pendiente" style="background:${esc(pdfCfg.legend[1].color)}!important;${symStyle}" title="${esc(ex.tema)} — Pendiente">${esc(pdfCfg.legend[1].symbol)}</td>`;
             }
           } else {
-            html += '<td class="sm-cell-empty"></td>';
+            html += `<td class="sm-cell-empty" style="background:${esc(pdfCfg.legend[2].color)}!important"></td>`;
           }
         });
         html += '</tr>';
@@ -206,6 +209,148 @@
     });
   }
 
+  // ── PDF Configuration (alineación, logo, leyenda, tipografía de cajas) ──
+  const SM_PDF_CONFIG_KEY = 'nmc-sm-pdf-config';
+  const SM_PDF_CONFIG_DEFAULT = {
+    logoAlign: 'left',       // left | center | right
+    logoW: 25, logoH: 18,
+    textAlign: 'right',      // left | center | right — bloque de título/área/meta
+    fontFamily: 'helvetica', // helvetica | times | courier (fuentes estándar de jsPDF)
+    headerSize: 9,
+    cellSize: 5.5,
+    symbolSize: 5.5,         // tamaño del contenido de celda (HTML px / PDF pt)
+    symbolFont: 'auto',      // auto (con símbolos) | helvetica | times | courier
+    legendShape: 'square',   // square | rounded | circle
+    // symbol = contenido mostrado en la celda de examen, idéntico en HTML y PDF
+    legend: [
+      {label:'OK = Aprobado', color:'#c8e6c9', symbol:'OK'},
+      {label:'X = Pendiente', color:'#fff9c4', symbol:'X'},
+      {label:'No aplica',     color:'#ffffff', symbol:''}
+    ],
+    borderColor: '#b4bfda',
+    borderWidth: 0.15
+  };
+
+  function smHexToRgb(hex){
+    const h = String(hex||'#000000').replace('#','');
+    const full = h.length===3 ? h.split('').map(c=>c+c).join('') : h;
+    const n = parseInt(full,16) || 0;
+    return [(n>>16)&255, (n>>8)&255, n&255];
+  }
+
+  function smGetPdfConfig(){
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SM_PDF_CONFIG_KEY)||'null'); } catch(e){}
+    const cfg = Object.assign({}, SM_PDF_CONFIG_DEFAULT, saved||{});
+    // Merge por-item para tolerar configs guardadas antes de agregar el campo "symbol"
+    cfg.legend = SM_PDF_CONFIG_DEFAULT.legend.map((def,i)=>{
+      const savedItem = (saved && Array.isArray(saved.legend) && saved.legend[i]) || {};
+      return Object.assign({}, def, savedItem);
+    });
+    return cfg;
+  }
+
+  // Alterna el botón activo dentro de un grupo y guarda el valor en el input oculto
+  window.smSetGroupVal = function(hiddenId, val, btnEl){
+    document.getElementById(hiddenId).value = val;
+    btnEl.parentElement.querySelectorAll('.ct-btn').forEach(b=>b.classList.remove('active'));
+    btnEl.classList.add('active');
+  };
+
+  function smFillPdfConfigForm(cfg){
+    document.getElementById('smpdf-logo-w').value = cfg.logoW;
+    document.getElementById('smpdf-logo-w-lbl').textContent = cfg.logoW+'mm';
+    document.getElementById('smpdf-logo-h').value = cfg.logoH;
+    document.getElementById('smpdf-logo-h-lbl').textContent = cfg.logoH+'mm';
+    document.getElementById('smpdf-font-family').value = cfg.fontFamily;
+    document.getElementById('smpdf-header-size').value = cfg.headerSize;
+    document.getElementById('smpdf-header-size-lbl').textContent = cfg.headerSize+'pt';
+    document.getElementById('smpdf-cell-size').value = cfg.cellSize;
+    document.getElementById('smpdf-cell-size-lbl').textContent = cfg.cellSize+'pt';
+    document.getElementById('smpdf-symbol-size').value = cfg.symbolSize;
+    document.getElementById('smpdf-symbol-size-lbl').textContent = cfg.symbolSize+'pt';
+    document.getElementById('smpdf-symbol-font').value = cfg.symbolFont;
+    document.getElementById('smpdf-border-color').value = cfg.borderColor;
+    document.getElementById('smpdf-border-width').value = cfg.borderWidth;
+    document.getElementById('smpdf-border-width-lbl').textContent = cfg.borderWidth+'mm';
+    cfg.legend.forEach((it,i)=>{
+      document.getElementById(`smpdf-leg-color-${i}`).value = it.color;
+      document.getElementById(`smpdf-leg-label-${i}`).value = it.label;
+      document.getElementById(`smpdf-leg-symbol-${i}`).value = it.symbol;
+    });
+
+    const setGroup = (hiddenId, val)=>{
+      const hidden = document.getElementById(hiddenId);
+      hidden.value = val;
+      const group = hidden.nextElementSibling;
+      if(!group) return;
+      group.querySelectorAll('.ct-btn').forEach(b=>b.classList.remove('active'));
+      const idx = ['left','center','right'].indexOf(val);
+      const shapeIdx = ['square','rounded','circle'].indexOf(val);
+      const i = idx>=0 ? idx : shapeIdx;
+      if(group.children[i]) group.children[i].classList.add('active');
+    };
+    setGroup('smpdf-logo-align', cfg.logoAlign);
+    setGroup('smpdf-text-align', cfg.textAlign);
+    setGroup('smpdf-legend-shape', cfg.legendShape);
+  }
+
+  window.smOpenPdfConfig = function(){
+    smFillPdfConfigForm(smGetPdfConfig());
+    document.getElementById('sm-pdf-config-modal').classList.add('open');
+  };
+
+  window.smSavePdfConfig = function(){
+    const cfg = {
+      logoAlign: document.getElementById('smpdf-logo-align').value,
+      logoW: parseFloat(document.getElementById('smpdf-logo-w').value),
+      logoH: parseFloat(document.getElementById('smpdf-logo-h').value),
+      textAlign: document.getElementById('smpdf-text-align').value,
+      fontFamily: document.getElementById('smpdf-font-family').value,
+      headerSize: parseFloat(document.getElementById('smpdf-header-size').value),
+      cellSize: parseFloat(document.getElementById('smpdf-cell-size').value),
+      symbolSize: parseFloat(document.getElementById('smpdf-symbol-size').value),
+      symbolFont: document.getElementById('smpdf-symbol-font').value,
+      legendShape: document.getElementById('smpdf-legend-shape').value,
+      legend: [0,1,2].map(i=>({
+        label: document.getElementById(`smpdf-leg-label-${i}`).value || SM_PDF_CONFIG_DEFAULT.legend[i].label,
+        color: document.getElementById(`smpdf-leg-color-${i}`).value,
+        symbol: document.getElementById(`smpdf-leg-symbol-${i}`).value
+      })),
+      borderColor: document.getElementById('smpdf-border-color').value,
+      borderWidth: parseFloat(document.getElementById('smpdf-border-width').value)
+    };
+    try { localStorage.setItem(SM_PDF_CONFIG_KEY, JSON.stringify(cfg)); } catch(e){}
+    document.getElementById('sm-pdf-config-modal').classList.remove('open');
+    smRenderLegend();
+    if(typeof showToast==='function') showToast('⚙️ Configuración de PDF guardada');
+  };
+
+  window.smResetPdfConfig = function(){
+    try { localStorage.removeItem(SM_PDF_CONFIG_KEY); } catch(e){}
+    smFillPdfConfigForm(smGetPdfConfig());
+    smRenderLegend();
+    if(typeof showToast==='function') showToast('↺ Configuración de PDF restablecida');
+  };
+
+  function smLegendBoxRadius(shape){
+    if(shape==='circle') return '50%';
+    if(shape==='rounded') return '6px';
+    return '2px';
+  }
+
+  function smRenderLegend(){
+    const el = document.getElementById('sm-legend');
+    if(!el) return;
+    const cfg = smGetPdfConfig();
+    const radius = smLegendBoxRadius(cfg.legendShape);
+    let html = '<strong>Leyenda:</strong>';
+    cfg.legend.forEach(item=>{
+      html += `<div class="sm-legend-item"><div class="sm-legend-box" style="background:${esc(item.color)};border-radius:${radius}"></div> ${esc(item.label)}</div>`;
+    });
+    el.innerHTML = html;
+  }
+
   // ── PDF Generation (A3) ──
   window.smGeneratePDF = function(){
     const filter = document.getElementById('sm-area-filter').value;
@@ -235,8 +380,36 @@
   function smBuildPDF(datasets, filenameSuffix){
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a3'});
+    const cfg = smGetPdfConfig();
 
-    // jsPDF Helvetica no soporta Unicode — transliterar a ASCII
+    // Fuente Unicode embebida (subset de DejaVu Sans, cargada desde
+    // sm-pdf-font.js) — permite usar símbolos especiales (• ● ✓ ✔ ✗ ✘ ★ ☆ ⚠
+    // → ← etc.) en el contenido de celda y la leyenda, algo que las 14
+    // fuentes estándar de PDF (Helvetica/Times/Courier) no soportan. No
+    // incluye emoji a color (esos requieren tablas de color que jsPDF no
+    // puede incrustar); para eso solo se ve el glifo en negro si existe.
+    const SM_FONT_NAME = 'SMSymbols';
+    let hasSymbolFont = false;
+    if(window.SM_PDF_FONT_REGULAR){
+      try {
+        doc.addFileToVFS('SMSymbols-Regular.ttf', window.SM_PDF_FONT_REGULAR);
+        doc.addFont('SMSymbols-Regular.ttf', SM_FONT_NAME, 'normal');
+        if(window.SM_PDF_FONT_BOLD){
+          doc.addFileToVFS('SMSymbols-Bold.ttf', window.SM_PDF_FONT_BOLD);
+          doc.addFont('SMSymbols-Bold.ttf', SM_FONT_NAME, 'bold');
+        }
+        hasSymbolFont = true;
+      } catch(e){ hasSymbolFont = false; }
+    }
+
+    // "auto" usa la fuente con símbolos si cargó; elegir un estándar a
+    // propósito renuncia a los símbolos especiales (ver pdfSafeSymbol).
+    const symbolFontName = cfg.symbolFont==='auto'
+      ? (hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily)
+      : cfg.symbolFont;
+    const symbolFontSupportsUnicode = cfg.symbolFont==='auto' && hasSymbolFont;
+
+    // jsPDF Helvetica/Times/Courier no soportan Unicode — transliterar a ASCII
     function ascii(s){
       return String(s ?? '')
         .normalize('NFD').replace(/[̀-ͯ]/g,'')
@@ -245,6 +418,17 @@
         .replace(/[–—]/g,'-')
         .replace(/✓/g,'X')
         .replace(/[^\x20-\x7E]/g,'');
+    }
+
+    // Símbolo de celda para PDF: si la fuente activa soporta Unicode, se usa
+    // el texto tal cual. Si el usuario forzó una fuente estándar (o la fuente
+    // Unicode no cargó), se recurre a la transliteración ASCII con un
+    // respaldo legible para que la celda no quede vacía.
+    function pdfSafeSymbol(raw, fallback){
+      if(symbolFontSupportsUnicode) return String(raw ?? '');
+      const a = ascii(raw);
+      if(a.trim()==='' && String(raw||'').trim()!=='') return fallback;
+      return a;
     }
 
     // Grab NMC logo from header as base64 for PDF
@@ -257,9 +441,10 @@
     const certF = smGetCertFilter();
     const certLabel = certF==='skill' ? 'SKILL ASSESSMENT' : certF==='knowledge' ? 'Knowledge Certification' : '';
 
+    const cellSizeSmall = Math.max(3, cfg.cellSize - 0.5);
+
     datasets.forEach((ds, dsIdx)=>{
       if(dsIdx > 0) doc.addPage('a3','landscape');
-      const firstPageOfDataset = doc.internal.getNumberOfPages();
 
       // ── Autofit: measure longest name/title/numero ──
       const pxPerMm = 0.28; // approx chars-to-mm at fontSize 5.5
@@ -301,38 +486,63 @@
         doc.setFillColor(27,79,138);
         doc.rect(0, 0, 420, 22, 'F');
 
-        // Logo
-        let titleX = 10;
+        // Logo — posición según alineación configurada
+        let logoX = 5;
+        if(cfg.logoAlign==='center') logoX = (420 - cfg.logoW)/2;
+        else if(cfg.logoAlign==='right') logoX = 420 - cfg.logoW - 5;
+        const logoY = Math.max(1, (22 - cfg.logoH)/2);
         if(logoSrc){
-          try { doc.addImage(logoSrc, 'PNG', 5, 2, 25, 18); titleX = 26; } catch(e){}
+          try { doc.addImage(logoSrc, 'PNG', logoX, logoY, cfg.logoW, cfg.logoH); } catch(e){}
         }
+
+        // Bloque de texto (título/área/meta) — alineación configurable,
+        // desplazado para no encimarse con el logo cuando comparten lado.
+        let aX;
+        if(cfg.textAlign==='left') aX = (logoSrc && cfg.logoAlign==='left') ? logoX+cfg.logoW+4 : 8;
+        else if(cfg.textAlign==='center') aX = 210;
+        else aX = (logoSrc && cfg.logoAlign==='right') ? logoX-4 : 412;
 
         doc.setTextColor(255,255,255);
         doc.setFontSize(13);
-        doc.setFont(undefined,'bold');
-        doc.text('Matriz de Habilidades / Skills Matrix', 250, 8, {align:'right'});
-        doc.setFontSize(15);
-        doc.setFont(undefined,'normal');
-        doc.text(ascii(`Area: ${ds.area}`), 220, 14, {align:'right'});
-        doc.setFontSize(8);
-        if(certLabel) doc.text(ascii(`Tipo: ${certLabel}`), titleX, 9);
-        doc.text(ascii(`Empleados: ${ds.emps.length}  |  Examenes: ${ds.exams.length}`), 150, 14, {align:'right'});
-        doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')}`, 150, 19, {align:'right'});
+        doc.setFont(cfg.fontFamily,'bold');
+        doc.text('Matriz de Habilidades / Skills Matrix', aX, 7, {align: cfg.textAlign});
+        doc.setFontSize(11);
+        doc.setFont(cfg.fontFamily,'normal');
+        doc.text(ascii(`Area: ${ds.area}`), aX, 12.5, {align: cfg.textAlign});
+        doc.setFontSize(7.5);
+        const metaParts = [`Empleados: ${ds.emps.length}`, `Examenes: ${ds.exams.length}`];
+        if(certLabel) metaParts.push(`Tipo: ${certLabel}`);
+        doc.text(ascii(metaParts.join('  |  ')), aX, 17, {align: cfg.textAlign});
+        doc.setFontSize(7);
+        doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')}`, aX, 20.5, {align: cfg.textAlign});
 
-        // Legend — debajo de la caja titulo (Y=24)
+        // Legend — debajo de la caja titulo (Y=24), forma y colores configurables.
+        // El rect plano (forma "square") usa doc.rect() en vez de roundedRect con
+        // radio casi cero: algunos motores de impresión/PDF fallan al rasterizar
+        // curvas Bézier degeneradas y la caja terminaba sin imprimirse.
         doc.setFontSize(6.5);
+        doc.setFont(symbolFontName, 'normal');
         doc.setTextColor(0,0,0);
-        const levels = [
-          {l:'OK = Aprobado', c:[200,230,201]},
-          {l:'X = Pendiente', c:[255,249,196]},
-          {l:'No aplica', c:[255,255,255]}
-        ];
+        doc.setDrawColor(0,0,0);
+        doc.setLineWidth(0.1);
         let lx = 10;
-        levels.forEach(lev=>{
-          doc.setFillColor(...lev.c);
-          doc.rect(lx, 24, 5, 3.5, 'FD');
-          doc.text(lev.l, lx+6.5, 27);
-          lx += 30;
+        cfg.legend.forEach((item, li)=>{
+          doc.setFillColor(...smHexToRgb(item.color));
+          let textX;
+          if(cfg.legendShape==='circle'){
+            const r = 1.9;
+            doc.circle(lx+r, 25.75, r, 'FD');
+            textX = lx + 2*r + 1.5;
+          } else if(cfg.legendShape==='rounded'){
+            doc.roundedRect(lx, 24, 5, 3.5, 1, 1, 'FD');
+            textX = lx + 5 + 1.5;
+          } else {
+            doc.rect(lx, 24, 5, 3.5, 'FD');
+            textX = lx + 5 + 1.5;
+          }
+          const label = pdfSafeSymbol(item.label, SM_PDF_CONFIG_DEFAULT.legend[li].label);
+          doc.text(label, textX, 27);
+          lx = textX + doc.getTextWidth(label) + 6;
         });
 
         // Fondo azul de los títulos de columnas fijas — mismo alto total que
@@ -343,8 +553,8 @@
         doc.rect(marginL, headerAreaTop, fixedTotal, headerBlockH, 'F');
 
         // Títulos de columnas fijas, centrados verticalmente en ese bloque
-        doc.setFontSize(9);
-        doc.setFont(undefined,'bold');
+        doc.setFontSize(cfg.headerSize);
+        doc.setFont(cfg.fontFamily,'bold');
         doc.setTextColor(255,255,255);
         const fixedCols = [
           {label:'#', w:7},
@@ -364,7 +574,7 @@
         doc.setFillColor(21,65,128);
         doc.rect(examStartX, headerAreaTop, examTotalW, procLabelH, 'F');
         doc.setFontSize(13);
-        doc.setFont(undefined,'bold');
+        doc.setFont(cfg.fontFamily,'bold');
         doc.setTextColor(255,255,255);
         doc.text('Procedimientos / Procedures', examStartX + examTotalW/2, headerAreaTop + 3.5, {align:'center'});
 
@@ -373,8 +583,8 @@
         doc.rect(examStartX, headerAreaTop + procLabelH, examTotalW, vertHeaderH, 'F');
 
         // Draw each exam name vertically
-        doc.setFontSize(9);
-        doc.setFont(undefined,'normal');
+        doc.setFontSize(cfg.headerSize);
+        doc.setFont(cfg.fontFamily,'normal');
         doc.setTextColor(255,255,255);
         ds.exams.forEach((ex, ei)=>{
           const x = examStartX + ei * examColW + examColW/2 + 1;
@@ -397,14 +607,14 @@
         const sigLineY = pageH - 15;
 
         doc.setFontSize(7);
-        doc.setFont(undefined,'bold');
+        doc.setFont(cfg.fontFamily,'bold');
         doc.setTextColor(90,100,120);
         doc.text('Gerente de Area', 210, sigLineY - 4, {align:'center'});
 
         doc.setDrawColor(120,140,180);
         doc.setLineWidth(0.2);
         doc.setFontSize(6.5);
-        doc.setFont(undefined,'normal');
+        doc.setFont(cfg.fontFamily,'normal');
         let sx = sigStartX;
         ['Nombre', 'Firma', 'Fecha'].forEach(label=>{
           doc.line(sx, sigLineY, sx + sigFieldW, sigLineY);
@@ -423,20 +633,27 @@
       // Build table data — includes No. Emp column
       const head = [['#', 'No. Emp', 'Nombre / Name', 'Puesto / Title', 'Estatus', ...ds.exams.map(()=>'')]];
 
+      // examCellKind[rowIndex][examIndex] = 'ok'|'pending'|'na' — evita ambigüedad
+      // en didParseCell cuando el símbolo configurado coincide entre estados.
+      const examCellKind = [];
       const body = [];
       ds.emps.forEach((emp, i)=>{
         const empExamIds = new Set(emp.exam_ids||[]);
         const checks = (window._examChecks && window._examChecks[emp.id]) || {};
+        const kinds = [];
+        const examTexts = ds.exams.map(ex=>{
+          if(!empExamIds.has(ex.id)){ kinds.push('na'); return pdfSafeSymbol(cfg.legend[2].symbol, ''); }
+          if(checks[ex.id]){ kinds.push('ok'); return pdfSafeSymbol(cfg.legend[0].symbol, 'OK'); }
+          kinds.push('pending'); return pdfSafeSymbol(cfg.legend[1].symbol, 'X');
+        });
+        examCellKind.push(kinds);
         body.push([
           i+1,
           ascii(emp.numero||''),
           ascii(emp.nombre||''),
           ascii(emp.puesto||''),
           ascii(emp.estatus||'-'),
-          ...ds.exams.map(ex=>{
-            if(!empExamIds.has(ex.id)) return '';
-            return checks[ex.id] ? 'OK' : 'X';
-          })
+          ...examTexts
         ]);
       });
 
@@ -459,10 +676,10 @@
       // Dynamic column styles — autofit widths
       const colStyles = {
         0: {cellWidth: 7, halign:'center'},
-        1: {cellWidth: numW, halign:'center', fontSize: 5},
+        1: {cellWidth: numW, halign:'center', fontSize: cellSizeSmall},
         2: {cellWidth: nameW, halign:'left', overflow:'ellipsize'},
-        3: {cellWidth: titleW, halign:'left', overflow:'ellipsize', fontSize: 5},
-        4: {cellWidth: statusW, halign:'center', fontSize: 5}
+        3: {cellWidth: titleW, halign:'left', overflow:'ellipsize', fontSize: cellSizeSmall},
+        4: {cellWidth: statusW, halign:'center', fontSize: cellSizeSmall}
       };
       ds.exams.forEach((_, ei)=>{
         colStyles[5 + ei] = {cellWidth: examColW, halign:'center'};
@@ -474,15 +691,17 @@
         startY: tableStartY,
         theme: 'grid',
         styles: {
-          fontSize: 5.5,
+          font: cfg.fontFamily,
+          fontSize: cfg.cellSize,
           cellPadding: 1.2,
-          lineWidth: 0.15,
-          lineColor: [180,191,218],
+          lineWidth: cfg.borderWidth,
+          lineColor: smHexToRgb(cfg.borderColor),
           overflow: 'ellipsize',
           halign: 'center',
           valign: 'middle'
         },
         headStyles: {
+          font: cfg.fontFamily,
           fillColor: [27,79,138],
           textColor: [27,79,138],
           fontStyle: 'bold',
@@ -513,16 +732,23 @@
               if(st==='Aprobado'){ data.cell.styles.fillColor=[187,222,251]; data.cell.styles.textColor=[13,71,161]; data.cell.styles.fontStyle='bold'; }
               else if(st==='Pendiente'){ data.cell.styles.fillColor=[255,249,196]; data.cell.styles.textColor=[245,127,23]; data.cell.styles.fontStyle='bold'; }
             }
-            // Exam cells (index 5+)
+            // Exam cells (index 5+) — color y símbolo vienen de la configuración
+            // de leyenda (misma fuente que usa el HTML), identificados por
+            // examCellKind en vez del texto de la celda para evitar ambigüedad.
             if(ci >= 5 && ri < totalDataRows){
-              if(data.cell.raw === 'OK'){
-                data.cell.styles.fillColor = [200,230,201];
+              const kind = examCellKind[ri][ci-5];
+              data.cell.styles.font = symbolFontName;
+              data.cell.styles.fontSize = cfg.symbolSize;
+              if(kind==='ok'){
+                data.cell.styles.fillColor = smHexToRgb(cfg.legend[0].color);
                 data.cell.styles.textColor = [46,125,50];
                 data.cell.styles.fontStyle = 'bold';
-              } else if(data.cell.raw === 'X'){
-                data.cell.styles.fillColor = [255,249,196];
+              } else if(kind==='pending'){
+                data.cell.styles.fillColor = smHexToRgb(cfg.legend[1].color);
                 data.cell.styles.textColor = [245,127,23];
                 data.cell.styles.fontStyle = 'bold';
+              } else {
+                data.cell.styles.fillColor = smHexToRgb(cfg.legend[2].color);
               }
             }
             // Summary rows
@@ -541,7 +767,11 @@
         didDrawPage: function(data){
           // Cuando la tabla no cabe en una sola página, autoTable crea
           // páginas nuevas — sin esto quedaban sin encabezado (en blanco).
-          if(data.pageNumber > firstPageOfDataset) drawHeaderArt();
+          // data.pageNumber es relativo a ESTE autoTable() (siempre arranca en 1,
+          // incluso en el 2do+ dataset de un PDF combinado) — NO es el número de
+          // página absoluto del documento, por eso se compara contra 1 y no
+          // contra el conteo de páginas del doc.
+          if(data.pageNumber > 1) drawHeaderArt();
           drawFooterArt();
         }
       });
