@@ -305,6 +305,7 @@ function runAnalysis(){
 
   A={records,best,rowsCorr,empStats,quality,soloForms,soloMaestro,byArea,bySup,byPuesto,byCurso,
      passThr,totAsig,totComp,totAprob,filesNoExam};
+  window._A = A; // expone el resultado del análisis para depuración desde la consola
   renderAll();
   _autoSyncChecksToSistema(); // ► auto-sync checks al Sistema al ejecutar análisis
   $("#results").style.display="block";
