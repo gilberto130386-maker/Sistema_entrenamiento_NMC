@@ -329,9 +329,18 @@ function _autoSyncChecksToSistema(){
   if(!A || !A.rowsCorr) return;
   const results=[];
   for(const r of A.rowsCorr){
-    if(r.aplica && r.fr && r.fr.pctScore!==null && r.fr.pctScore>=A.passThr){
+    // Un "check" del Sistema = examen COMPLETADO (con registro en formularios),
+    // exactamente como lo cuenta el Analizador en el panel de Personal
+    // (pCompMap) y en empStats: ahí basta `r.fr` para ser "Completado".
+    // Antes se exigía además puntaje legible y aprobatorio (pctScore>=passThr),
+    // por lo que un examen completado sin puntaje interpretable o reprobado se
+    // veía "Completado" en el Analizador pero NO se marcaba su check en el
+    // Sistema → "el analizador no manda todos los checks". Enviamos ahora todos
+    // los completados y conservamos `pct` (null si no hubo puntaje) como dato.
+    if(r.aplica && r.fr){
       results.push({num:String(r.emp.num).trim(), examReg:r.exam.reg,
-        pct:Math.round(r.fr.pctScore*100), nombre:r.emp.nombre});
+        pct:(r.fr.pctScore!==null)?Math.round(r.fr.pctScore*100):null,
+        nombre:r.emp.nombre});
     }
   }
   if(!results.length) return;
