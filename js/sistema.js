@@ -1323,11 +1323,12 @@ function renderDashboard(){
   const areaStatus = {};
   EMPLOYEES.forEach(e => {
     const a = (e.area||'Sin área').trim();
-    if(!areaStatus[a]) areaStatus[a] = {apr:0, pend:0, inact:0, total:0};
+    if(!areaStatus[a]) areaStatus[a] = {apr:0, pend:0, proc:0, inact:0, total:0};
     areaStatus[a].total++;
-    if(e.estatus==='Aprobado')       areaStatus[a].apr++;
-    else if(e.estatus==='Pendiente') areaStatus[a].pend++;
-    else                             areaStatus[a].inact++;
+    if(e.estatus==='Aprobado')        areaStatus[a].apr++;
+    else if(e.estatus==='Pendiente')  areaStatus[a].pend++;
+    else if(e.estatus==='En Proceso') areaStatus[a].proc++;
+    else                               areaStatus[a].inact++;
   });
 
   const sortedAS = Object.entries(areaStatus).sort((a,b)=>b[1].total-a[1].total);
@@ -1337,16 +1338,19 @@ function renderDashboard(){
   if(stType === 'donut'){
     const aprTot=sortedAS.reduce((s,[,v])=>s+v.apr,0);
     const pendTot=sortedAS.reduce((s,[,v])=>s+v.pend,0);
+    const procTot=sortedAS.reduce((s,[,v])=>s+v.proc,0);
     const inactTot=sortedAS.reduce((s,[,v])=>s+v.inact,0);
     document.getElementById('status-area-chart').innerHTML=_svgDonut([
       {label:'Aprobados',v:aprTot,c:'var(--green)'},
       {label:'Pendientes',v:pendTot,c:'var(--yellow)'},
+      {label:'En Proceso',v:procTot,c:'var(--accent)'},
       {label:'Inactivos',v:inactTot,c:'var(--red)'}
     ],65,100,100,200);
   } else {
   document.getElementById('status-area-chart').innerHTML = sortedAS.map(([area, v]) => {
     const aprW  = (v.apr  / maxAS * 100).toFixed(1);
     const pendW = (v.pend / maxAS * 100).toFixed(1);
+    const procW = (v.proc / maxAS * 100).toFixed(1);
     const inactW= (v.inact/ maxAS * 100).toFixed(1);
     const aprPct = v.total ? Math.round(v.apr/v.total*100) : 0;
     return `
@@ -1356,6 +1360,7 @@ function renderDashboard(){
         <div style="display:flex;gap:.75rem;font-size:.72rem;white-space:nowrap">
           <span style="color:var(--green)">✓ ${v.apr} apr.</span>
           <span style="color:var(--yellow)">⏳ ${v.pend} pend.</span>
+          ${v.proc?`<span style="color:var(--accent)">🔄 ${v.proc} proc.</span>`:''}
           ${v.inact?`<span style="color:var(--red)">✕ ${v.inact}</span>`:''}
           <span style="color:var(--text3);font-weight:700">${aprPct}%</span>
         </div>
@@ -1363,6 +1368,7 @@ function renderDashboard(){
       <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--border);gap:1px">
         ${v.apr  ? `<div style="width:${aprW}%;background:var(--green);transition:width .5s ease" title="Aprobados: ${v.apr}"></div>`  : ''}
         ${v.pend ? `<div style="width:${pendW}%;background:var(--yellow);transition:width .5s ease" title="Pendientes: ${v.pend}"></div>` : ''}
+        ${v.proc ? `<div style="width:${procW}%;background:var(--accent);transition:width .5s ease" title="En Proceso: ${v.proc}"></div>` : ''}
         ${v.inact? `<div style="width:${inactW}%;background:var(--red);transition:width .5s ease" title="Inactivos: ${v.inact}"></div>`  : ''}
       </div>
     </div>`;
@@ -1832,7 +1838,7 @@ function empCard(e){
   const init=fmtName(e.nombre).split(' ').slice(0,2).map(n=>n[0]).join('');
   const colors=['#ff6b35','#22d3a0','#f5c518','#6366f1','#ec4899','#14b8a6'];
   const col=colors[e.nombre.charCodeAt(0)%colors.length];
-  return `<div class="emp-card ${e.estatus.toLowerCase()}" onclick="openEmpModal('${esc(e.id)}')">
+  return `<div class="emp-card ${e.estatus.toLowerCase().replace(/\s+/g,'-')}" onclick="openEmpModal('${esc(e.id)}')">
     <div style="display:flex;align-items:center;gap:.7rem;margin-bottom:.5rem">
       <div class="emp-avatar" style="background:${col}22;color:${col};border:1px solid ${col}44">${esc(init)}</div>
       <div><div class="emp-name">${esc(fmtName(e.nombre))}</div><div class="emp-role">${esc(e.puesto)}</div></div>
@@ -3189,8 +3195,8 @@ function fmtName(n){
 }
 
 function sBadge(s){
-  const m={Activo:'b-g',Aprobado:'b-g',Pendiente:'b-y',Inactivo:'b-r',Suspendido:'b-r'};
-  const i={Activo:'✓',Aprobado:'✓',Pendiente:'⏳',Inactivo:'✕',Suspendido:'⚠️'};
+  const m={Activo:'b-g',Aprobado:'b-g',Pendiente:'b-y','En Proceso':'b-o',Inactivo:'b-r',Suspendido:'b-r'};
+  const i={Activo:'✓',Aprobado:'✓',Pendiente:'⏳','En Proceso':'🔄',Inactivo:'✕',Suspendido:'⚠️'};
   return `<span class="badge ${m[s]||'b-x'}">${i[s]||''} ${s||'—'}</span>`;
 }
 
