@@ -288,6 +288,55 @@
     return `font-size:${smLegendSize(cfg,i)}px` + (fam ? `;font-family:${fam}` : '');
   }
 
+  // ── Paleta de colores ──
+  // Tonos sugeridos para las cajas de la leyenda y el borde de la tabla:
+  // neutros y azules para bordes, pasteles claros para fondos de celda (se
+  // imprimen bien y dejan legible el símbolo). En minúsculas porque es lo que
+  // devuelve <input type="color">, y así la comparación de "seleccionado" es
+  // directa.
+  const SM_COLOR_PALETTE = [
+    '#ffffff','#f5f5f5','#e0e0e0','#b4bfda','#90a4ae','#546e7a',
+    '#1b4f8a','#bbdefb','#90caf9','#c8e6c9','#a5d6a7','#dcedc8',
+    '#fff9c4','#ffe082','#ffccbc','#ffcdd2','#e1bee7','#d7ccc8'
+  ];
+
+  // Marca la muestra que coincide con el valor actual del input de color
+  function smSyncPaletteSel(box, input){
+    const cur = String(input.value||'').toLowerCase();
+    box.querySelectorAll('.sm-swatch').forEach(sw=>{
+      sw.classList.toggle('sel', sw.dataset.color===cur);
+    });
+  }
+
+  // Construye (una sola vez) las muestras de cada contenedor .sm-palette y las
+  // enlaza con su <input type="color"> vía data-color-target.
+  function smRenderColorPalettes(){
+    document.querySelectorAll('.sm-palette').forEach(box=>{
+      const input = document.getElementById(box.dataset.colorTarget);
+      if(!input) return;
+      if(!box.children.length){
+        SM_COLOR_PALETTE.forEach(hex=>{
+          const sw = document.createElement('button');
+          sw.type = 'button';
+          sw.className = 'sm-swatch';
+          sw.style.background = hex;
+          sw.dataset.color = hex;
+          sw.title = hex;
+          sw.setAttribute('aria-label', `Usar color ${hex}`);
+          sw.addEventListener('click', ()=>{
+            input.value = hex;
+            input.dispatchEvent(new Event('input', {bubbles:true}));
+            smSyncPaletteSel(box, input);
+          });
+          box.appendChild(sw);
+        });
+        // El selector nativo también mueve la marca de seleccionado
+        input.addEventListener('input', ()=>smSyncPaletteSel(box, input));
+      }
+      smSyncPaletteSel(box, input);
+    });
+  }
+
   // Alterna el botón activo dentro de un grupo y guarda el valor en el input oculto
   window.smSetGroupVal = function(hiddenId, val, btnEl){
     document.getElementById(hiddenId).value = val;
@@ -332,6 +381,9 @@
     setGroup('smpdf-logo-align', cfg.logoAlign);
     setGroup('smpdf-text-align', cfg.textAlign);
     setGroup('smpdf-legend-shape', cfg.legendShape);
+
+    // Después de escribir los valores, para que la muestra activa coincida
+    smRenderColorPalettes();
   }
 
   window.smOpenPdfConfig = function(){

@@ -318,6 +318,12 @@ tbody tr{transition:background .12s}
 .ct-btn:hover{border-color:var(--accent);color:var(--accent)}
 .ct-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
 
+/* ── PALETA DE COLORES (configuración del PDF) ──────── */
+.sm-palette{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.sm-swatch{width:16px;height:16px;padding:0;border-radius:4px;border:1px solid rgba(0,0,0,.18);cursor:pointer;transition:transform .12s,box-shadow .12s}
+.sm-swatch:hover{transform:scale(1.18)}
+.sm-swatch.sel{box-shadow:0 0 0 2px var(--accent);border-color:var(--accent)}
+
 /* ── EXAM CHECK SYSTEM ─────────────────────────────── */
 .exam-check-btn{
   width:28px;height:28px;border-radius:6px;border:2px solid var(--border2);
