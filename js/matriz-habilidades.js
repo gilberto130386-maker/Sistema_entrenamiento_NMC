@@ -128,7 +128,8 @@
       });
       html += '</tr></thead><tbody>';
 
-      // Employee rows
+      // Employee rows — cada caja de leyenda aporta su propio tamaño y fuente
+      const symStyle = [0,1,2].map(i=>smSymbolCellStyle(pdfCfg, i));
       ds.emps.forEach((emp, ri)=>{
         const empExamIds = new Set(emp.exam_ids||[]);
         const checks = (window._examChecks && window._examChecks[emp.id]) || {};
@@ -139,16 +140,15 @@
         html += `<td class="sm-title">${esc(emp.puesto)||''}</td>`;
         const stCls = emp.estatus==='Aprobado'?'sm-cell-aprobado': emp.estatus==='Pendiente'?'sm-cell-pendiente':'sm-cell-empty';
         html += `<td class="${stCls}" style="font-size:.65rem;white-space:nowrap">${esc(emp.estatus)||'—'}</td>`;
-        const symStyle = `font-size:${pdfCfg.symbolSize}px`;
         ds.exams.forEach(ex=>{
           if(empExamIds.has(ex.id)){
             if(checks[ex.id]){
-              html += `<td class="sm-cell-aprobado" style="background:${esc(pdfCfg.legend[0].color)}!important;${symStyle}" title="${esc(ex.tema)} — Aprobado">${esc(pdfCfg.legend[0].symbol)}</td>`;
+              html += `<td class="sm-cell-aprobado" style="background:${esc(pdfCfg.legend[0].color)}!important;${symStyle[0]}" title="${esc(ex.tema)} — Aprobado">${esc(pdfCfg.legend[0].symbol)}</td>`;
             } else {
-              html += `<td class="sm-cell-pendiente" style="background:${esc(pdfCfg.legend[1].color)}!important;${symStyle}" title="${esc(ex.tema)} — Pendiente">${esc(pdfCfg.legend[1].symbol)}</td>`;
+              html += `<td class="sm-cell-pendiente" style="background:${esc(pdfCfg.legend[1].color)}!important;${symStyle[1]}" title="${esc(ex.tema)} — Pendiente">${esc(pdfCfg.legend[1].symbol)}</td>`;
             }
           } else {
-            html += `<td class="sm-cell-empty" style="background:${esc(pdfCfg.legend[2].color)}!important"></td>`;
+            html += `<td class="sm-cell-empty" style="background:${esc(pdfCfg.legend[2].color)}!important;${symStyle[2]}" title="${esc(ex.tema)} — No aplica">${esc(pdfCfg.legend[2].symbol)}</td>`;
           }
         });
         html += '</tr>';
@@ -218,18 +218,28 @@
     fontFamily: 'helvetica', // helvetica | times | courier (fuentes estándar de jsPDF)
     headerSize: 9,
     cellSize: 5.5,
-    symbolSize: 5.5,         // tamaño del contenido de celda (HTML px / PDF pt)
-    symbolFont: 'auto',      // auto (con símbolos) | helvetica | times | courier
     legendShape: 'square',   // square | rounded | circle
-    // symbol = contenido mostrado en la celda de examen, idéntico en HTML y PDF
+    // Cada caja de la leyenda define su propio contenido de celda y su propio
+    // tamaño/fuente/color — son independientes entre sí:
+    //   symbol      = caracteres y símbolos de la celda, idénticos en HTML y PDF
+    //   size        = tamaño de esos caracteres (HTML px / PDF pt)
+    //   font        = auto (con símbolos) | helvetica | times | courier
+    //   symbolColor = color de esos caracteres (lo elige la paleta)
+    //   color       = fondo de la celda
     legend: [
-      {label:'OK = Aprobado', color:'#c8e6c9', symbol:'OK'},
-      {label:'X = Pendiente', color:'#fff9c4', symbol:'X'},
-      {label:'No aplica',     color:'#ffffff', symbol:''}
+      {label:'OK = Aprobado', color:'#c8e6c9', symbol:'OK', size:5.5, font:'auto', symbolColor:'#2e7d32'},
+      {label:'X = Pendiente', color:'#fff9c4', symbol:'X',  size:5.5, font:'auto', symbolColor:'#f57f17'},
+      {label:'No aplica',     color:'#ffffff', symbol:'',   size:5.5, font:'auto', symbolColor:'#6b7494'}
     ],
     borderColor: '#b4bfda',
     borderWidth: 0.15
   };
+
+  // Blanco puro: en el PDF las formas de leyenda con este color no se dibujan
+  function smIsWhite(hex){
+    const [r,g,b] = smHexToRgb(hex);
+    return r===255 && g===255 && b===255;
+  }
 
   function smHexToRgb(hex){
     const h = String(hex||'#000000').replace('#','');
@@ -242,12 +252,115 @@
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(SM_PDF_CONFIG_KEY)||'null'); } catch(e){}
     const cfg = Object.assign({}, SM_PDF_CONFIG_DEFAULT, saved||{});
-    // Merge por-item para tolerar configs guardadas antes de agregar el campo "symbol"
+    // Merge por-item para tolerar configs guardadas antes de agregar los campos
+    // "symbol"/"size"/"font". Las configs previas tenían un único symbolSize y
+    // symbolFont globales: se usan como valor inicial de las tres cajas para que
+    // el PDF siga viéndose igual tras la migración.
+    const legacySize = saved && Number.isFinite(Number(saved.symbolSize)) ? Number(saved.symbolSize) : null;
+    const legacyFont = (saved && saved.symbolFont) || null;
     cfg.legend = SM_PDF_CONFIG_DEFAULT.legend.map((def,i)=>{
       const savedItem = (saved && Array.isArray(saved.legend) && saved.legend[i]) || {};
-      return Object.assign({}, def, savedItem);
+      const item = Object.assign({}, def, savedItem);
+      if(!Number.isFinite(Number(item.size))) item.size = def.size;
+      if(savedItem.size===undefined && legacySize!==null) item.size = legacySize;
+      if(savedItem.font===undefined && legacyFont) item.font = legacyFont;
+      return item;
     });
+    delete cfg.symbolSize;
+    delete cfg.symbolFont;
     return cfg;
+  }
+
+  // Tamaño/fuente son por caja de leyenda; estos helpers resuelven el valor de
+  // una caja concreta con respaldo al default cuando la config viene incompleta.
+  function smLegendSize(cfg, i){
+    const v = Number(cfg.legend[i] && cfg.legend[i].size);
+    return Number.isFinite(v) ? v : SM_PDF_CONFIG_DEFAULT.legend[i].size;
+  }
+  function smLegendFont(cfg, i){
+    return (cfg.legend[i] && cfg.legend[i].font) || SM_PDF_CONFIG_DEFAULT.legend[i].font;
+  }
+  function smLegendSymbolColor(cfg, i){
+    const c = cfg.legend[i] && cfg.legend[i].symbolColor;
+    return /^#[0-9a-f]{6}$/i.test(c||'') ? c : SM_PDF_CONFIG_DEFAULT.legend[i].symbolColor;
+  }
+  // Equivalente CSS de la fuente elegida para el símbolo. "auto" hereda la
+  // tipografía de la tabla, que en el navegador sí soporta símbolos Unicode.
+  // Los nombres con espacios van entre comillas simples: estas cadenas se
+  // insertan en atributos style="..." delimitados por comillas dobles.
+  function smSymbolFontCss(font){
+    if(font==='helvetica') return 'Helvetica, Arial, sans-serif';
+    if(font==='times') return "'Times New Roman', Times, serif";
+    if(font==='courier') return "'Courier New', Courier, monospace";
+    return '';
+  }
+  // Estilo inline de los caracteres de la celda para la caja i
+  // (tamaño + fuente + color).
+  function smSymbolCellStyle(cfg, i){
+    const fam = smSymbolFontCss(smLegendFont(cfg, i));
+    return `font-size:${smLegendSize(cfg,i)}px;color:${smLegendSymbolColor(cfg,i)}`
+      + (fam ? `;font-family:${fam}` : '');
+  }
+
+  // ── Paleta de colores ──
+  // Aplica solo al color de los caracteres y símbolos de cada caja de la
+  // leyenda, así que son tonos con contraste suficiente sobre los fondos
+  // claros de celda: neutros oscuros y colores saturados, más blanco para
+  // fondos oscuros. En minúsculas para comparar directo con el valor guardado.
+  const SM_COLOR_PALETTE = [
+    '#000000','#37474f','#6b7494','#90a4ae','#ffffff','#1b4f8a',
+    '#0d47a1','#1565c0','#0277bd','#00695c','#2e7d32','#558b2f',
+    '#f57f17','#ef6c00','#d84315','#c62828','#ad1457','#6a1b9a'
+  ];
+
+  // Marca la muestra que coincide con el valor actual del input de color
+  function smSyncPaletteSel(box, input){
+    const cur = String(input.value||'').toLowerCase();
+    box.querySelectorAll('.sm-swatch').forEach(sw=>{
+      sw.classList.toggle('sel', sw.dataset.color===cur);
+    });
+  }
+
+  // Vista previa: la caja "caracteres y símbolos" se muestra con el color
+  // elegido en su paleta, tal como saldrá en la celda.
+  function smSyncSymbolPreview(targetId){
+    const m = /^smpdf-leg-symcolor-(\d)$/.exec(targetId||'');
+    if(!m) return;
+    const src = document.getElementById(targetId);
+    const preview = document.getElementById(`smpdf-leg-symbol-${m[1]}`);
+    if(src && preview) preview.style.color = src.value;
+  }
+
+  // Construye (una sola vez) las muestras de cada contenedor .sm-palette y las
+  // enlaza con el input que guarda el color, vía data-color-target.
+  function smRenderColorPalettes(){
+    document.querySelectorAll('.sm-palette').forEach(box=>{
+      const targetId = box.dataset.colorTarget;
+      const input = document.getElementById(targetId);
+      if(!input) return;
+      if(!box.children.length){
+        SM_COLOR_PALETTE.forEach(hex=>{
+          const sw = document.createElement('button');
+          sw.type = 'button';
+          sw.className = 'sm-swatch';
+          sw.style.background = hex;
+          sw.dataset.color = hex;
+          sw.title = hex;
+          sw.setAttribute('aria-label', `Usar color ${hex}`);
+          sw.addEventListener('click', ()=>{
+            input.value = hex;
+            input.dispatchEvent(new Event('input', {bubbles:true}));
+          });
+          box.appendChild(sw);
+        });
+        input.addEventListener('input', ()=>{
+          smSyncPaletteSel(box, input);
+          smSyncSymbolPreview(targetId);
+        });
+      }
+      smSyncPaletteSel(box, input);
+      smSyncSymbolPreview(targetId);
+    });
   }
 
   // Alterna el botón activo dentro de un grupo y guarda el valor en el input oculto
@@ -267,9 +380,6 @@
     document.getElementById('smpdf-header-size-lbl').textContent = cfg.headerSize+'pt';
     document.getElementById('smpdf-cell-size').value = cfg.cellSize;
     document.getElementById('smpdf-cell-size-lbl').textContent = cfg.cellSize+'pt';
-    document.getElementById('smpdf-symbol-size').value = cfg.symbolSize;
-    document.getElementById('smpdf-symbol-size-lbl').textContent = cfg.symbolSize+'pt';
-    document.getElementById('smpdf-symbol-font').value = cfg.symbolFont;
     document.getElementById('smpdf-border-color').value = cfg.borderColor;
     document.getElementById('smpdf-border-width').value = cfg.borderWidth;
     document.getElementById('smpdf-border-width-lbl').textContent = cfg.borderWidth+'mm';
@@ -277,6 +387,11 @@
       document.getElementById(`smpdf-leg-color-${i}`).value = it.color;
       document.getElementById(`smpdf-leg-label-${i}`).value = it.label;
       document.getElementById(`smpdf-leg-symbol-${i}`).value = it.symbol;
+      const size = smLegendSize(cfg, i);
+      document.getElementById(`smpdf-leg-size-${i}`).value = size;
+      document.getElementById(`smpdf-leg-size-lbl-${i}`).textContent = size+'pt';
+      document.getElementById(`smpdf-leg-font-${i}`).value = smLegendFont(cfg, i);
+      document.getElementById(`smpdf-leg-symcolor-${i}`).value = smLegendSymbolColor(cfg, i);
     });
 
     const setGroup = (hiddenId, val)=>{
@@ -293,6 +408,9 @@
     setGroup('smpdf-logo-align', cfg.logoAlign);
     setGroup('smpdf-text-align', cfg.textAlign);
     setGroup('smpdf-legend-shape', cfg.legendShape);
+
+    // Después de escribir los valores, para que la muestra activa coincida
+    smRenderColorPalettes();
   }
 
   window.smOpenPdfConfig = function(){
@@ -309,29 +427,37 @@
       fontFamily: document.getElementById('smpdf-font-family').value,
       headerSize: parseFloat(document.getElementById('smpdf-header-size').value),
       cellSize: parseFloat(document.getElementById('smpdf-cell-size').value),
-      symbolSize: parseFloat(document.getElementById('smpdf-symbol-size').value),
-      symbolFont: document.getElementById('smpdf-symbol-font').value,
       legendShape: document.getElementById('smpdf-legend-shape').value,
       legend: [0,1,2].map(i=>({
         label: document.getElementById(`smpdf-leg-label-${i}`).value || SM_PDF_CONFIG_DEFAULT.legend[i].label,
         color: document.getElementById(`smpdf-leg-color-${i}`).value,
-        symbol: document.getElementById(`smpdf-leg-symbol-${i}`).value
+        symbol: document.getElementById(`smpdf-leg-symbol-${i}`).value,
+        size: parseFloat(document.getElementById(`smpdf-leg-size-${i}`).value),
+        font: document.getElementById(`smpdf-leg-font-${i}`).value,
+        symbolColor: document.getElementById(`smpdf-leg-symcolor-${i}`).value
       })),
       borderColor: document.getElementById('smpdf-border-color').value,
       borderWidth: parseFloat(document.getElementById('smpdf-border-width').value)
     };
     try { localStorage.setItem(SM_PDF_CONFIG_KEY, JSON.stringify(cfg)); } catch(e){}
     document.getElementById('sm-pdf-config-modal').classList.remove('open');
-    smRenderLegend();
+    smRefreshAfterConfig();
     if(typeof showToast==='function') showToast('⚙️ Configuración de PDF guardada');
   };
 
   window.smResetPdfConfig = function(){
     try { localStorage.removeItem(SM_PDF_CONFIG_KEY); } catch(e){}
     smFillPdfConfigForm(smGetPdfConfig());
-    smRenderLegend();
+    smRefreshAfterConfig();
     if(typeof showToast==='function') showToast('↺ Configuración de PDF restablecida');
   };
+
+  // El tamaño/fuente/símbolo de cada caja también se ven en la tabla en
+  // pantalla, así que hay que rehacerla (smRenderMatrix ya redibuja la leyenda).
+  function smRefreshAfterConfig(){
+    if(document.getElementById('sm-table-container') && document.getElementById('sm-area-filter')) smRenderMatrix();
+    else smRenderLegend();
+  }
 
   function smLegendBoxRadius(shape){
     if(shape==='circle') return '50%';
@@ -345,8 +471,12 @@
     const cfg = smGetPdfConfig();
     const radius = smLegendBoxRadius(cfg.legendShape);
     let html = '<strong>Leyenda:</strong>';
-    cfg.legend.forEach(item=>{
-      html += `<div class="sm-legend-item"><div class="sm-legend-box" style="background:${esc(item.color)};border-radius:${radius}"></div> ${esc(item.label)}</div>`;
+    cfg.legend.forEach((item,i)=>{
+      // La etiqueta suele contener el mismo símbolo de la celda, así que hereda
+      // la fuente elegida para esa caja (el tamaño se deja al estilo de leyenda).
+      const fam = smSymbolFontCss(smLegendFont(cfg, i));
+      const famStyle = fam ? ` style="font-family:${fam}"` : '';
+      html += `<div class="sm-legend-item"><div class="sm-legend-box" style="background:${esc(item.color)};border-radius:${radius}"></div> <span${famStyle}>${esc(item.label)}</span></div>`;
     });
     el.innerHTML = html;
   }
@@ -402,12 +532,16 @@
       } catch(e){ hasSymbolFont = false; }
     }
 
-    // "auto" usa la fuente con símbolos si cargó; elegir un estándar a
-    // propósito renuncia a los símbolos especiales (ver pdfSafeSymbol).
-    const symbolFontName = cfg.symbolFont==='auto'
-      ? (hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily)
-      : cfg.symbolFont;
-    const symbolFontSupportsUnicode = cfg.symbolFont==='auto' && hasSymbolFont;
+    // Cada caja de leyenda resuelve su propia fuente: "auto" usa la fuente con
+    // símbolos si cargó; elegir un estándar a propósito renuncia a los símbolos
+    // especiales de esa caja (ver pdfSafeSymbol).
+    const legendFonts = cfg.legend.map((it,i)=>{
+      const f = smLegendFont(cfg, i);
+      return {
+        name: f==='auto' ? (hasSymbolFont ? SM_FONT_NAME : cfg.fontFamily) : f,
+        unicode: f==='auto' && hasSymbolFont
+      };
+    });
 
     // jsPDF Helvetica/Times/Courier no soportan Unicode — transliterar a ASCII
     function ascii(s){
@@ -420,12 +554,12 @@
         .replace(/[^\x20-\x7E]/g,'');
     }
 
-    // Símbolo de celda para PDF: si la fuente activa soporta Unicode, se usa
-    // el texto tal cual. Si el usuario forzó una fuente estándar (o la fuente
-    // Unicode no cargó), se recurre a la transliteración ASCII con un
+    // Símbolo de celda para PDF: si la fuente de esa caja soporta Unicode, se
+    // usa el texto tal cual. Si el usuario forzó una fuente estándar (o la
+    // fuente Unicode no cargó), se recurre a la transliteración ASCII con un
     // respaldo legible para que la celda no quede vacía.
-    function pdfSafeSymbol(raw, fallback){
-      if(symbolFontSupportsUnicode) return String(raw ?? '');
+    function pdfSafeSymbol(raw, fallback, li){
+      if(legendFonts[li] && legendFonts[li].unicode) return String(raw ?? '');
       const a = ascii(raw);
       if(a.trim()==='' && String(raw||'').trim()!=='') return fallback;
       return a;
@@ -521,7 +655,6 @@
         // radio casi cero: algunos motores de impresión/PDF fallan al rasterizar
         // curvas Bézier degeneradas y la caja terminaba sin imprimirse.
         doc.setFontSize(6.5);
-        doc.setFont(symbolFontName, 'normal');
         doc.setTextColor(0,0,0);
         doc.setDrawColor(0,0,0);
         doc.setLineWidth(0.1);
@@ -529,7 +662,11 @@
         cfg.legend.forEach((item, li)=>{
           doc.setFillColor(...smHexToRgb(item.color));
           let textX;
-          if(cfg.legendShape==='circle'){
+          if(smIsWhite(item.color)){
+            // Una forma blanca sobre papel blanco no aporta nada: se omite y la
+            // etiqueta ocupa su lugar (en pantalla sí se sigue mostrando).
+            textX = lx;
+          } else if(cfg.legendShape==='circle'){
             const r = 1.9;
             doc.circle(lx+r, 25.75, r, 'FD');
             textX = lx + 2*r + 1.5;
@@ -540,7 +677,9 @@
             doc.rect(lx, 24, 5, 3.5, 'FD');
             textX = lx + 5 + 1.5;
           }
-          const label = pdfSafeSymbol(item.label, SM_PDF_CONFIG_DEFAULT.legend[li].label);
+          // La etiqueta se dibuja con la fuente de su propia caja
+          doc.setFont(legendFonts[li].name, 'normal');
+          const label = pdfSafeSymbol(item.label, SM_PDF_CONFIG_DEFAULT.legend[li].label, li);
           doc.text(label, textX, 27);
           lx = textX + doc.getTextWidth(label) + 6;
         });
@@ -642,9 +781,9 @@
         const checks = (window._examChecks && window._examChecks[emp.id]) || {};
         const kinds = [];
         const examTexts = ds.exams.map(ex=>{
-          if(!empExamIds.has(ex.id)){ kinds.push('na'); return pdfSafeSymbol(cfg.legend[2].symbol, ''); }
-          if(checks[ex.id]){ kinds.push('ok'); return pdfSafeSymbol(cfg.legend[0].symbol, 'OK'); }
-          kinds.push('pending'); return pdfSafeSymbol(cfg.legend[1].symbol, 'X');
+          if(!empExamIds.has(ex.id)){ kinds.push('na'); return pdfSafeSymbol(cfg.legend[2].symbol, '', 2); }
+          if(checks[ex.id]){ kinds.push('ok'); return pdfSafeSymbol(cfg.legend[0].symbol, 'OK', 0); }
+          kinds.push('pending'); return pdfSafeSymbol(cfg.legend[1].symbol, 'X', 1);
         });
         examCellKind.push(kinds);
         body.push([
@@ -737,19 +876,14 @@
             // examCellKind en vez del texto de la celda para evitar ambigüedad.
             if(ci >= 5 && ri < totalDataRows){
               const kind = examCellKind[ri][ci-5];
-              data.cell.styles.font = symbolFontName;
-              data.cell.styles.fontSize = cfg.symbolSize;
-              if(kind==='ok'){
-                data.cell.styles.fillColor = smHexToRgb(cfg.legend[0].color);
-                data.cell.styles.textColor = [46,125,50];
-                data.cell.styles.fontStyle = 'bold';
-              } else if(kind==='pending'){
-                data.cell.styles.fillColor = smHexToRgb(cfg.legend[1].color);
-                data.cell.styles.textColor = [245,127,23];
-                data.cell.styles.fontStyle = 'bold';
-              } else {
-                data.cell.styles.fillColor = smHexToRgb(cfg.legend[2].color);
-              }
+              // Tamaño, fuente y color de los caracteres son independientes
+              // por caja de leyenda
+              const li = kind==='ok' ? 0 : kind==='pending' ? 1 : 2;
+              data.cell.styles.font = legendFonts[li].name;
+              data.cell.styles.fontSize = smLegendSize(cfg, li);
+              data.cell.styles.fillColor = smHexToRgb(cfg.legend[li].color);
+              data.cell.styles.textColor = smHexToRgb(smLegendSymbolColor(cfg, li));
+              if(kind!=='na') data.cell.styles.fontStyle = 'bold';
             }
             // Summary rows
             if(ri >= totalDataRows){
