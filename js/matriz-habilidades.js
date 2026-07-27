@@ -220,14 +220,16 @@
     cellSize: 5.5,
     legendShape: 'square',   // square | rounded | circle
     // Cada caja de la leyenda define su propio contenido de celda y su propio
-    // tamaño/fuente — son independientes entre sí:
-    //   symbol = contenido mostrado en la celda de examen, idéntico en HTML y PDF
-    //   size   = tamaño del contenido de esa celda (HTML px / PDF pt)
-    //   font   = auto (con símbolos) | helvetica | times | courier
+    // tamaño/fuente/color — son independientes entre sí:
+    //   symbol      = caracteres y símbolos de la celda, idénticos en HTML y PDF
+    //   size        = tamaño de esos caracteres (HTML px / PDF pt)
+    //   font        = auto (con símbolos) | helvetica | times | courier
+    //   symbolColor = color de esos caracteres (lo elige la paleta)
+    //   color       = fondo de la celda
     legend: [
-      {label:'OK = Aprobado', color:'#c8e6c9', symbol:'OK', size:5.5, font:'auto'},
-      {label:'X = Pendiente', color:'#fff9c4', symbol:'X',  size:5.5, font:'auto'},
-      {label:'No aplica',     color:'#ffffff', symbol:'',   size:5.5, font:'auto'}
+      {label:'OK = Aprobado', color:'#c8e6c9', symbol:'OK', size:5.5, font:'auto', symbolColor:'#2e7d32'},
+      {label:'X = Pendiente', color:'#fff9c4', symbol:'X',  size:5.5, font:'auto', symbolColor:'#f57f17'},
+      {label:'No aplica',     color:'#ffffff', symbol:'',   size:5.5, font:'auto', symbolColor:'#6b7494'}
     ],
     borderColor: '#b4bfda',
     borderWidth: 0.15
@@ -272,6 +274,10 @@
   function smLegendFont(cfg, i){
     return (cfg.legend[i] && cfg.legend[i].font) || SM_PDF_CONFIG_DEFAULT.legend[i].font;
   }
+  function smLegendSymbolColor(cfg, i){
+    const c = cfg.legend[i] && cfg.legend[i].symbolColor;
+    return /^#[0-9a-f]{6}$/i.test(c||'') ? c : SM_PDF_CONFIG_DEFAULT.legend[i].symbolColor;
+  }
   // Equivalente CSS de la fuente elegida para el símbolo. "auto" hereda la
   // tipografía de la tabla, que en el navegador sí soporta símbolos Unicode.
   // Los nombres con espacios van entre comillas simples: estas cadenas se
@@ -282,22 +288,23 @@
     if(font==='courier') return "'Courier New', Courier, monospace";
     return '';
   }
-  // Estilo inline del contenido de celda para la caja i (tamaño + fuente).
+  // Estilo inline de los caracteres de la celda para la caja i
+  // (tamaño + fuente + color).
   function smSymbolCellStyle(cfg, i){
     const fam = smSymbolFontCss(smLegendFont(cfg, i));
-    return `font-size:${smLegendSize(cfg,i)}px` + (fam ? `;font-family:${fam}` : '');
+    return `font-size:${smLegendSize(cfg,i)}px;color:${smLegendSymbolColor(cfg,i)}`
+      + (fam ? `;font-family:${fam}` : '');
   }
 
   // ── Paleta de colores ──
-  // Tonos sugeridos para las cajas de la leyenda y el borde de la tabla:
-  // neutros y azules para bordes, pasteles claros para fondos de celda (se
-  // imprimen bien y dejan legible el símbolo). En minúsculas porque es lo que
-  // devuelve <input type="color">, y así la comparación de "seleccionado" es
-  // directa.
+  // Aplica solo al color de los caracteres y símbolos de cada caja de la
+  // leyenda, así que son tonos con contraste suficiente sobre los fondos
+  // claros de celda: neutros oscuros y colores saturados, más blanco para
+  // fondos oscuros. En minúsculas para comparar directo con el valor guardado.
   const SM_COLOR_PALETTE = [
-    '#ffffff','#f5f5f5','#e0e0e0','#b4bfda','#90a4ae','#546e7a',
-    '#1b4f8a','#bbdefb','#90caf9','#c8e6c9','#a5d6a7','#dcedc8',
-    '#fff9c4','#ffe082','#ffccbc','#ffcdd2','#e1bee7','#d7ccc8'
+    '#000000','#37474f','#6b7494','#90a4ae','#ffffff','#1b4f8a',
+    '#0d47a1','#1565c0','#0277bd','#00695c','#2e7d32','#558b2f',
+    '#f57f17','#ef6c00','#d84315','#c62828','#ad1457','#6a1b9a'
   ];
 
   // Marca la muestra que coincide con el valor actual del input de color
@@ -308,11 +315,22 @@
     });
   }
 
+  // Vista previa: la caja "caracteres y símbolos" se muestra con el color
+  // elegido en su paleta, tal como saldrá en la celda.
+  function smSyncSymbolPreview(targetId){
+    const m = /^smpdf-leg-symcolor-(\d)$/.exec(targetId||'');
+    if(!m) return;
+    const src = document.getElementById(targetId);
+    const preview = document.getElementById(`smpdf-leg-symbol-${m[1]}`);
+    if(src && preview) preview.style.color = src.value;
+  }
+
   // Construye (una sola vez) las muestras de cada contenedor .sm-palette y las
-  // enlaza con su <input type="color"> vía data-color-target.
+  // enlaza con el input que guarda el color, vía data-color-target.
   function smRenderColorPalettes(){
     document.querySelectorAll('.sm-palette').forEach(box=>{
-      const input = document.getElementById(box.dataset.colorTarget);
+      const targetId = box.dataset.colorTarget;
+      const input = document.getElementById(targetId);
       if(!input) return;
       if(!box.children.length){
         SM_COLOR_PALETTE.forEach(hex=>{
@@ -326,14 +344,16 @@
           sw.addEventListener('click', ()=>{
             input.value = hex;
             input.dispatchEvent(new Event('input', {bubbles:true}));
-            smSyncPaletteSel(box, input);
           });
           box.appendChild(sw);
         });
-        // El selector nativo también mueve la marca de seleccionado
-        input.addEventListener('input', ()=>smSyncPaletteSel(box, input));
+        input.addEventListener('input', ()=>{
+          smSyncPaletteSel(box, input);
+          smSyncSymbolPreview(targetId);
+        });
       }
       smSyncPaletteSel(box, input);
+      smSyncSymbolPreview(targetId);
     });
   }
 
@@ -365,6 +385,7 @@
       document.getElementById(`smpdf-leg-size-${i}`).value = size;
       document.getElementById(`smpdf-leg-size-lbl-${i}`).textContent = size+'pt';
       document.getElementById(`smpdf-leg-font-${i}`).value = smLegendFont(cfg, i);
+      document.getElementById(`smpdf-leg-symcolor-${i}`).value = smLegendSymbolColor(cfg, i);
     });
 
     const setGroup = (hiddenId, val)=>{
@@ -406,7 +427,8 @@
         color: document.getElementById(`smpdf-leg-color-${i}`).value,
         symbol: document.getElementById(`smpdf-leg-symbol-${i}`).value,
         size: parseFloat(document.getElementById(`smpdf-leg-size-${i}`).value),
-        font: document.getElementById(`smpdf-leg-font-${i}`).value
+        font: document.getElementById(`smpdf-leg-font-${i}`).value,
+        symbolColor: document.getElementById(`smpdf-leg-symcolor-${i}`).value
       })),
       borderColor: document.getElementById('smpdf-border-color').value,
       borderWidth: parseFloat(document.getElementById('smpdf-border-width').value)
@@ -844,21 +866,14 @@
             // examCellKind en vez del texto de la celda para evitar ambigüedad.
             if(ci >= 5 && ri < totalDataRows){
               const kind = examCellKind[ri][ci-5];
-              // Tamaño y fuente son independientes por caja de leyenda
+              // Tamaño, fuente y color de los caracteres son independientes
+              // por caja de leyenda
               const li = kind==='ok' ? 0 : kind==='pending' ? 1 : 2;
               data.cell.styles.font = legendFonts[li].name;
               data.cell.styles.fontSize = smLegendSize(cfg, li);
-              if(kind==='ok'){
-                data.cell.styles.fillColor = smHexToRgb(cfg.legend[0].color);
-                data.cell.styles.textColor = [46,125,50];
-                data.cell.styles.fontStyle = 'bold';
-              } else if(kind==='pending'){
-                data.cell.styles.fillColor = smHexToRgb(cfg.legend[1].color);
-                data.cell.styles.textColor = [245,127,23];
-                data.cell.styles.fontStyle = 'bold';
-              } else {
-                data.cell.styles.fillColor = smHexToRgb(cfg.legend[2].color);
-              }
+              data.cell.styles.fillColor = smHexToRgb(cfg.legend[li].color);
+              data.cell.styles.textColor = smHexToRgb(smLegendSymbolColor(cfg, li));
+              if(kind!=='na') data.cell.styles.fontStyle = 'bold';
             }
             // Summary rows
             if(ri >= totalDataRows){

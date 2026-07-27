@@ -1510,37 +1510,44 @@
         <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-legend-shape','rounded',this)">▢ Redondeado</button>
         <button type="button" class="ct-btn" onclick="smSetGroupVal('smpdf-legend-shape','circle',this)">⬤ Círculo</button>
       </div>
-      <div style="display:flex;gap:.6rem;font-size:.65rem;color:var(--text3);margin-bottom:.3rem;padding-left:calc(18px + 28px + 46px + 1.8rem)">
-        <span style="flex:1">Contenido de la celda (HTML y PDF) y etiqueta de la leyenda</span>
+      <div style="display:flex;gap:.6rem;font-size:.65rem;color:var(--text3);margin-bottom:.3rem;padding-left:calc(18px + 28px + 1.2rem)">
+        <span style="width:46px;flex-shrink:0;text-align:center" title="Contenido de la celda en HTML y PDF">Caracteres<br>y símbolos</span>
+        <span style="flex:1;align-self:flex-end">Etiqueta de la leyenda</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:.7rem">
         <div style="display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.6rem">
             <span style="width:18px;flex-shrink:0;font-size:.7rem;font-weight:700;color:var(--text3);text-align:center">1</span>
-            <input id="smpdf-leg-color-0" type="color" value="#c8e6c9" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
-            <input id="smpdf-leg-symbol-0" class="status-sel" type="text" maxlength="6" value="OK" title="Contenido de la celda" style="width:46px;text-align:center;flex-shrink:0">
+            <input id="smpdf-leg-color-0" type="color" value="#c8e6c9" title="Color de fondo de la celda" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+            <input id="smpdf-leg-symbol-0" class="status-sel" type="text" maxlength="6" value="OK" title="Caracteres y símbolos de la celda" style="width:46px;text-align:center;flex-shrink:0">
             <input id="smpdf-leg-label-0" class="status-sel" type="text" maxlength="40" value="OK = Aprobado" style="flex:1">
           </div>
-          <div class="sm-palette" data-color-target="smpdf-leg-color-0" style="padding-left:calc(18px + 28px + 46px + 1.8rem)"></div>
+          <input type="hidden" id="smpdf-leg-symcolor-0" value="#2e7d32">
+          <div class="sm-palette" data-color-target="smpdf-leg-symcolor-0" style="padding-left:calc(18px + 28px + 1.2rem)"></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.6rem">
             <span style="width:18px;flex-shrink:0;font-size:.7rem;font-weight:700;color:var(--text3);text-align:center">2</span>
-            <input id="smpdf-leg-color-1" type="color" value="#fff9c4" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
-            <input id="smpdf-leg-symbol-1" class="status-sel" type="text" maxlength="6" value="X" title="Contenido de la celda" style="width:46px;text-align:center;flex-shrink:0">
+            <input id="smpdf-leg-color-1" type="color" value="#fff9c4" title="Color de fondo de la celda" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+            <input id="smpdf-leg-symbol-1" class="status-sel" type="text" maxlength="6" value="X" title="Caracteres y símbolos de la celda" style="width:46px;text-align:center;flex-shrink:0">
             <input id="smpdf-leg-label-1" class="status-sel" type="text" maxlength="40" value="X = Pendiente" style="flex:1">
           </div>
-          <div class="sm-palette" data-color-target="smpdf-leg-color-1" style="padding-left:calc(18px + 28px + 46px + 1.8rem)"></div>
+          <input type="hidden" id="smpdf-leg-symcolor-1" value="#f57f17">
+          <div class="sm-palette" data-color-target="smpdf-leg-symcolor-1" style="padding-left:calc(18px + 28px + 1.2rem)"></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:.3rem">
           <div style="display:flex;align-items:center;gap:.6rem">
             <span style="width:18px;flex-shrink:0;font-size:.7rem;font-weight:700;color:var(--text3);text-align:center">3</span>
-            <input id="smpdf-leg-color-2" type="color" value="#ffffff" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
-            <input id="smpdf-leg-symbol-2" class="status-sel" type="text" maxlength="6" value="" title="Contenido de la celda" style="width:46px;text-align:center;flex-shrink:0">
+            <input id="smpdf-leg-color-2" type="color" value="#ffffff" title="Color de fondo de la celda" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer;flex-shrink:0">
+            <input id="smpdf-leg-symbol-2" class="status-sel" type="text" maxlength="6" value="" title="Caracteres y símbolos de la celda" style="width:46px;text-align:center;flex-shrink:0">
             <input id="smpdf-leg-label-2" class="status-sel" type="text" maxlength="40" value="No aplica" style="flex:1">
           </div>
-          <div class="sm-palette" data-color-target="smpdf-leg-color-2" style="padding-left:calc(18px + 28px + 46px + 1.8rem)"></div>
+          <input type="hidden" id="smpdf-leg-symcolor-2" value="#6b7494">
+          <div class="sm-palette" data-color-target="smpdf-leg-symcolor-2" style="padding-left:calc(18px + 28px + 1.2rem)"></div>
         </div>
+      </div>
+      <div style="font-size:.65rem;color:var(--text3);margin-top:.4rem">
+        🎨 La paleta de cada caja aplica solo al color de sus caracteres y símbolos (en la celda del HTML y del PDF). El fondo de la celda se elige con el cuadro de color de la izquierda.
       </div>
       <div style="font-size:.65rem;color:var(--text3);margin-top:.4rem">
         ℹ️ El PDF incluye una fuente especial para símbolos (•, ●, ✓, ✔, ✗, ✘, ★, ☆, ⚠, →, ←, ♦, ♥, ♣, ♠) — se imprimen igual que en pantalla. Los emoji a color (🟢✅❌) no se pueden incrustar en un PDF y se reemplazan por "OK"/"X" para que la celda no quede vacía.
@@ -1625,7 +1632,6 @@
         <div>
           <label for="smpdf-border-color" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Color de borde</label>
           <input id="smpdf-border-color" type="color" value="#b4bfda" style="width:28px;height:28px;border:none;border-radius:6px;cursor:pointer">
-          <div class="sm-palette" data-color-target="smpdf-border-color" style="margin-top:.4rem"></div>
         </div>
         <div>
           <label for="smpdf-border-width" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Grosor de borde</label>
