@@ -235,6 +235,12 @@
     borderWidth: 0.15
   };
 
+  // Blanco puro: en el PDF las formas de leyenda con este color no se dibujan
+  function smIsWhite(hex){
+    const [r,g,b] = smHexToRgb(hex);
+    return r===255 && g===255 && b===255;
+  }
+
   function smHexToRgb(hex){
     const h = String(hex||'#000000').replace('#','');
     const full = h.length===3 ? h.split('').map(c=>c+c).join('') : h;
@@ -656,7 +662,11 @@
         cfg.legend.forEach((item, li)=>{
           doc.setFillColor(...smHexToRgb(item.color));
           let textX;
-          if(cfg.legendShape==='circle'){
+          if(smIsWhite(item.color)){
+            // Una forma blanca sobre papel blanco no aporta nada: se omite y la
+            // etiqueta ocupa su lugar (en pantalla sí se sigue mostrando).
+            textX = lx;
+          } else if(cfg.legendShape==='circle'){
             const r = 1.9;
             doc.circle(lx+r, 25.75, r, 'FD');
             textX = lx + 2*r + 1.5;
