@@ -1495,6 +1495,25 @@
             oninput="document.getElementById('smpdf-header-size-lbl').textContent=this.value+'pt'" style="width:100%;accent-color:var(--accent)">
           <span id="smpdf-header-size-lbl" style="font-size:.7rem;color:var(--text3)">9pt</span>
         </div>
+        <div>
+          <label for="smpdf-text-dx" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Mover ⬅ izquierda / derecha ➡</label>
+          <input id="smpdf-text-dx" type="range" min="-40" max="40" step="0.5" value="0"
+            oninput="document.getElementById('smpdf-text-dx-lbl').textContent=this.value+'mm'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-text-dx-lbl" style="font-size:.7rem;color:var(--text3)">0mm</span>
+        </div>
+        <div>
+          <label for="smpdf-text-dy" style="font-size:.72rem;color:var(--text2);display:block;margin-bottom:.3rem">Mover ⬆ arriba / abajo ⬇</label>
+          <input id="smpdf-text-dy" type="range" min="-2" max="10" step="0.5" value="0"
+            oninput="document.getElementById('smpdf-text-dy-lbl').textContent=this.value+'mm'" style="width:100%;accent-color:var(--accent)">
+          <span id="smpdf-text-dy-lbl" style="font-size:.7rem;color:var(--text3)">0mm</span>
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button type="button" class="ct-btn" style="width:100%"
+            onclick="smResetTextOffset()">⊹ Centrar textos (0, 0)</button>
+        </div>
+      </div>
+      <div style="font-size:.65rem;color:var(--text3);margin-top:.5rem">
+        ℹ️ Mueve el bloque de título, área, meta y fecha del encabezado del PDF. La barra azul acompaña al bloque —crece al bajarlo y se compacta al subirlo— y la leyenda y la tabla se recorren lo mismo, así que el texto nunca queda fuera de la barra.
       </div>
     </div>
 

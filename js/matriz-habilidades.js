@@ -215,6 +215,8 @@
     logoAlign: 'left',       // left | center | right
     logoW: 25, logoH: 18,
     textAlign: 'right',      // left | center | right — bloque de título/área/meta
+    textOffsetX: 0,          // mm — desplazamiento del bloque de textos (- izq / + der)
+    textOffsetY: 0,          // mm — desplazamiento del bloque de textos (- arriba / + abajo)
     fontFamily: 'helvetica', // helvetica | times | courier (fuentes estándar de jsPDF)
     headerSize: 9,
     cellSize: 5.5,
@@ -268,7 +270,22 @@
     });
     delete cfg.symbolSize;
     delete cfg.symbolFont;
+    // Los desplazamientos se acotan al rango de los sliders: un valor fuera de
+    // rango (config editada a mano) sacaría los textos del encabezado.
+    cfg.textOffsetX = smClampNum(cfg.textOffsetX, SM_TEXT_DX_RANGE[0], SM_TEXT_DX_RANGE[1]);
+    cfg.textOffsetY = smClampNum(cfg.textOffsetY, SM_TEXT_DY_RANGE[0], SM_TEXT_DY_RANGE[1]);
     return cfg;
+  }
+
+  // Rangos de los sliders "Mover textos" (mm), iguales a los del HTML. El
+  // mínimo vertical es -2: más arriba, el título de 13pt se cortaría contra el
+  // borde superior de la hoja.
+  const SM_TEXT_DX_RANGE = [-40, 40];
+  const SM_TEXT_DY_RANGE = [-2, 10];
+
+  function smClampNum(v, min, max){
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : 0;
   }
 
   // Tamaño/fuente son por caja de leyenda; estos helpers resuelven el valor de
@@ -363,6 +380,14 @@
     });
   }
 
+  // Devuelve el bloque de textos del encabezado a su posición original
+  window.smResetTextOffset = function(){
+    [['smpdf-text-dx','smpdf-text-dx-lbl'], ['smpdf-text-dy','smpdf-text-dy-lbl']].forEach(([id,lbl])=>{
+      document.getElementById(id).value = 0;
+      document.getElementById(lbl).textContent = '0mm';
+    });
+  };
+
   // Alterna el botón activo dentro de un grupo y guarda el valor en el input oculto
   window.smSetGroupVal = function(hiddenId, val, btnEl){
     document.getElementById(hiddenId).value = val;
@@ -375,6 +400,10 @@
     document.getElementById('smpdf-logo-w-lbl').textContent = cfg.logoW+'mm';
     document.getElementById('smpdf-logo-h').value = cfg.logoH;
     document.getElementById('smpdf-logo-h-lbl').textContent = cfg.logoH+'mm';
+    document.getElementById('smpdf-text-dx').value = cfg.textOffsetX;
+    document.getElementById('smpdf-text-dx-lbl').textContent = cfg.textOffsetX+'mm';
+    document.getElementById('smpdf-text-dy').value = cfg.textOffsetY;
+    document.getElementById('smpdf-text-dy-lbl').textContent = cfg.textOffsetY+'mm';
     document.getElementById('smpdf-font-family').value = cfg.fontFamily;
     document.getElementById('smpdf-header-size').value = cfg.headerSize;
     document.getElementById('smpdf-header-size-lbl').textContent = cfg.headerSize+'pt';
@@ -424,6 +453,8 @@
       logoW: parseFloat(document.getElementById('smpdf-logo-w').value),
       logoH: parseFloat(document.getElementById('smpdf-logo-h').value),
       textAlign: document.getElementById('smpdf-text-align').value,
+      textOffsetX: parseFloat(document.getElementById('smpdf-text-dx').value),
+      textOffsetY: parseFloat(document.getElementById('smpdf-text-dy').value),
       fontFamily: document.getElementById('smpdf-font-family').value,
       headerSize: parseFloat(document.getElementById('smpdf-header-size').value),
       cellSize: parseFloat(document.getElementById('smpdf-cell-size').value),
@@ -603,7 +634,14 @@
       const marginL = 5;
       const availW = 420 - marginL - 3;
       const examColW = Math.min(8, Math.max(4, (availW - fixedTotal) / ds.exams.length));
-      const headerAreaTop = 30;
+      // La barra azul acompaña al bloque de textos: crece al bajarlo y se
+      // compacta al subirlo, y la leyenda y la tabla se recorren lo mismo, así
+      // que el texto nunca se sale de la barra. El rango del slider (ver
+      // SM_TEXT_DY_RANGE) impide que al subir se corte contra el borde de hoja.
+      const textShift = cfg.textOffsetY;
+      const titleBarH = 22 + textShift;
+      const legendY = titleBarH + 2;
+      const headerAreaTop = 30 + textShift;
       const procLabelH = 5;
       const vertHeaderH = 100;
       const tableStartY = headerAreaTop + procLabelH + vertHeaderH + 2;
@@ -616,41 +654,44 @@
       // área y se repite en cada página adicional que genere autoTable al
       // paginar la tabla — de lo contrario esas páginas quedan sin encabezado.
       function drawHeaderArt(){
-        // Title bar — 22mm de alto para no encimar
+        // Title bar — 22mm de alto (más lo que bajen los textos) para no encimar
         doc.setFillColor(27,79,138);
-        doc.rect(0, 0, 420, 22, 'F');
+        doc.rect(0, 0, 420, titleBarH, 'F');
 
         // Logo — posición según alineación configurada
         let logoX = 5;
         if(cfg.logoAlign==='center') logoX = (420 - cfg.logoW)/2;
         else if(cfg.logoAlign==='right') logoX = 420 - cfg.logoW - 5;
-        const logoY = Math.max(1, (22 - cfg.logoH)/2);
+        const logoY = Math.max(1, (titleBarH - cfg.logoH)/2);
         if(logoSrc){
           try { doc.addImage(logoSrc, 'PNG', logoX, logoY, cfg.logoW, cfg.logoH); } catch(e){}
         }
 
         // Bloque de texto (título/área/meta) — alineación configurable,
-        // desplazado para no encimarse con el logo cuando comparten lado.
+        // desplazado para no encimarse con el logo cuando comparten lado, más
+        // el desplazamiento manual (textOffsetX/Y) en mm.
         let aX;
         if(cfg.textAlign==='left') aX = (logoSrc && cfg.logoAlign==='left') ? logoX+cfg.logoW+4 : 8;
         else if(cfg.textAlign==='center') aX = 210;
         else aX = (logoSrc && cfg.logoAlign==='right') ? logoX-4 : 412;
+        aX += cfg.textOffsetX;
+        const aY = cfg.textOffsetY;
 
         doc.setTextColor(255,255,255);
         doc.setFontSize(13);
         doc.setFont(cfg.fontFamily,'bold');
-        doc.text('Matriz de Habilidades / Skills Matrix', aX, 7, {align: cfg.textAlign});
+        doc.text('Matriz de Habilidades / Skills Matrix', aX, 7+aY, {align: cfg.textAlign});
         doc.setFontSize(11);
         doc.setFont(cfg.fontFamily,'normal');
-        doc.text(ascii(`Area: ${ds.area}`), aX, 12.5, {align: cfg.textAlign});
+        doc.text(ascii(`Area: ${ds.area}`), aX, 12.5+aY, {align: cfg.textAlign});
         doc.setFontSize(7.5);
         const metaParts = [`Empleados: ${ds.emps.length}`, `Examenes: ${ds.exams.length}`];
         if(certLabel) metaParts.push(`Tipo: ${certLabel}`);
-        doc.text(ascii(metaParts.join('  |  ')), aX, 17, {align: cfg.textAlign});
+        doc.text(ascii(metaParts.join('  |  ')), aX, 17+aY, {align: cfg.textAlign});
         doc.setFontSize(7);
-        doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')}`, aX, 20.5, {align: cfg.textAlign});
+        doc.text(`Generado: ${new Date().toLocaleDateString('es-MX')}`, aX, 20.5+aY, {align: cfg.textAlign});
 
-        // Legend — debajo de la caja titulo (Y=24), forma y colores configurables.
+        // Legend — justo debajo de la barra de título, forma y colores configurables.
         // El rect plano (forma "square") usa doc.rect() en vez de roundedRect con
         // radio casi cero: algunos motores de impresión/PDF fallan al rasterizar
         // curvas Bézier degeneradas y la caja terminaba sin imprimirse.
@@ -668,19 +709,19 @@
             textX = lx;
           } else if(cfg.legendShape==='circle'){
             const r = 1.9;
-            doc.circle(lx+r, 25.75, r, 'FD');
+            doc.circle(lx+r, legendY+1.75, r, 'FD');
             textX = lx + 2*r + 1.5;
           } else if(cfg.legendShape==='rounded'){
-            doc.roundedRect(lx, 24, 5, 3.5, 1, 1, 'FD');
+            doc.roundedRect(lx, legendY, 5, 3.5, 1, 1, 'FD');
             textX = lx + 5 + 1.5;
           } else {
-            doc.rect(lx, 24, 5, 3.5, 'FD');
+            doc.rect(lx, legendY, 5, 3.5, 'FD');
             textX = lx + 5 + 1.5;
           }
           // La etiqueta se dibuja con la fuente de su propia caja
           doc.setFont(legendFonts[li].name, 'normal');
           const label = pdfSafeSymbol(item.label, SM_PDF_CONFIG_DEFAULT.legend[li].label, li);
-          doc.text(label, textX, 27);
+          doc.text(label, textX, legendY+3);
           lx = textX + doc.getTextWidth(label) + 6;
         });
 
