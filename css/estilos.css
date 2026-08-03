@@ -42,6 +42,10 @@ header{background:linear-gradient(135deg,#1b4f8a,#1565c0);border-bottom:1px soli
 .hdr{max-width:1500px;margin:0 auto;display:flex;align-items:center;gap:1.2rem;height:var(--nav-alto)}
 .logo{display:flex;align-items:center;gap:.7rem;cursor:pointer}
 .logo img{object-fit:contain;display:block}
+/* Alto por defecto del logo. El autofit escribe height en línea (gana sobre
+   esta regla); si el usuario fija --logo-h, el autofit suelta el valor en
+   línea y manda esta regla. Ver syncLogoAutoFit(). */
+#hdr-logo{height:var(--logo-h,56px)}
 .logo-text{font-family:var(--fh);font-weight:800;font-size:1.5rem;color:#fff}
 .logo-sub{font-size:.9rem;color:rgba(255,255,255,.65);letter-spacing:.1em;text-transform:uppercase}
 .nav{display:flex;gap:.2rem;margin-left:auto}
@@ -258,6 +262,29 @@ tbody tr{transition:background .12s}
 /* Dashboard chart bars — animated */
 .d-bar{transition:width .7s cubic-bezier(.4,0,.2,1);height:8px;border-radius:99px}
 .chart-row{margin-bottom:.65rem}.chart-row-hdr{display:flex;justify-content:space-between;font-size:.77rem;margin-bottom:3px}.accent-bold{color:var(--accent);font-weight:700}.fs77{color:var(--text2);font-size:.77rem}
+
+/* ── COMBO CHART (columnas + línea, estilo Excel) ─────────────── */
+/* El viewBox escala con el panel: el gráfico se re-ajusta solo cuando se
+   redimensiona con el tirador, sin volver a renderizar. */
+.cmb-wrap{width:100%}
+.cmb-svg{display:block;width:100%;height:auto;overflow:visible}
+.cmb-axis{fill:var(--text3);font-family:var(--fps),monospace;font-size:11px}
+.cmb-axis2{opacity:.85}
+.cmb-xlbl{fill:var(--text2);font-family:var(--fb);font-size:11px}
+/* Halo del color del panel para que la etiqueta se lea sobre la columna */
+.cmb-dl{fill:var(--text2);font-family:var(--fps),monospace;font-size:10px;font-weight:700;
+        stroke:var(--bg2);stroke-width:3px;paint-order:stroke fill}
+.cmb-legend{display:flex;flex-wrap:wrap;gap:.4rem .9rem;justify-content:center;margin-top:.6rem}
+/* Crecimiento de columnas desde la línea base + trazado de la línea.
+   Solo en el render inicial (.cmb-anim): al reajustar por arrastre no se repite. */
+.cmb-bars.cmb-anim{transform-box:fill-box;transform-origin:bottom;animation:cmbGrow .6s cubic-bezier(.4,0,.2,1) both}
+@keyframes cmbGrow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.cmb-anim ~ .cmb-line{stroke-dasharray:2400;stroke-dashoffset:2400;animation:cmbDraw .9s ease-out .15s forwards}
+@keyframes cmbDraw{to{stroke-dashoffset:0}}
+@media (prefers-reduced-motion:reduce){
+  .cmb-bars.cmb-anim{animation:none}
+  .cmb-anim ~ .cmb-line{stroke-dasharray:none;stroke-dashoffset:0;animation:none}
+}
 /* ── FORMAT PANEL ─────────────────────────────────────────── */
 .clr-swatch{
   width:28px;height:28px;border-radius:50%;border:2px solid transparent;
@@ -314,6 +341,12 @@ tbody tr{transition:background .12s}
 .ct-row{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:.45rem .6rem;background:var(--bg3);border-radius:8px}
 .ct-row-label{font-size:.8rem;color:var(--text2);font-weight:500;min-width:160px}
 .ct-btns{display:flex;gap:.3rem}
+.ct-group{display:flex;flex-direction:column;gap:.35rem}
+.ct-sub{display:flex;align-items:center;flex-wrap:wrap;gap:.45rem;padding:.4rem .5rem .4rem .85rem;background:var(--bg3);border-radius:8px;border-left:2px solid var(--accent)}
+.ct-sub-lbl{font-size:.7rem;color:var(--text3);font-weight:600}
+.ct-sel{font-family:var(--fb);font-size:.7rem;padding:.2rem .35rem;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text2);cursor:pointer;max-width:150px}
+.ct-chk{display:flex;align-items:center;gap:.28rem;font-size:.7rem;color:var(--text3);cursor:pointer;user-select:none}
+.ct-chk input{accent-color:var(--accent);cursor:pointer;margin:0}
 .ct-btn{padding:.28rem .6rem;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text3);font-size:.7rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap}
 .ct-btn:hover{border-color:var(--accent);color:var(--accent)}
 .ct-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}

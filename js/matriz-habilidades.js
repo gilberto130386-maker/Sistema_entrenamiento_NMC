@@ -187,27 +187,77 @@
   // altura objetivo, reduce el font-size del encabezado (por tabla) para
   // acercarse a esa altura y fija la altura real necesaria — nunca recorta
   // el texto, solo lo compacta cuando es posible.
+  //
+  // Con writing-mode:vertical-rl + white-space:nowrap la altura del encabezado
+  // es la longitud del texto, así que la fuente es la única palanca: para los
+  // nombres largos (>60 caracteres) ni el mínimo legible alcanza el objetivo.
+  // En ese caso el ajuste se queda en SM_VERT_MIN_FONT y lo deja anotado en
+  // data-sm-autofit="min-font" en vez de fingir que cupo.
+  const SM_VERT_TARGET_H = 220; // px — altura deseada del encabezado vertical
+  const SM_VERT_MIN_FONT = 6.5; // px — tamaño mínimo legible
+  const SM_VERT_PASSES   = 3;   // refinamientos tras la primera estimación
+
   function smAutofitVerticalHeaders(container){
-    const SM_VERT_TARGET_H = 220; // px — altura deseada del encabezado vertical
-    const SM_VERT_MIN_FONT = 6.5; // px — tamaño mínimo legible
     container.querySelectorAll('table').forEach(table=>{
       const ths = table.querySelectorAll('.sm-th-vert');
       if(!ths.length) return;
+      // Se limpia el ajuste previo para volver a medir contra el CSS actual.
       ths.forEach(th=>{ th.style.fontSize=''; th.style.height=''; });
+
       let maxH = 0;
       ths.forEach(th=>{ if(th.scrollHeight>maxH) maxH=th.scrollHeight; });
-      if(maxH<=SM_VERT_TARGET_H) return;
+      // Contenedor sin layout (vista oculta): medir daría 0 y dejaría el
+      // encabezado "ajustado" con datos falsos.
+      if(!maxH) return;
+      if(maxH<=SM_VERT_TARGET_H){ table.dataset.smAutofit='fit'; return; }
 
-      const baseFontPx = parseFloat(getComputedStyle(ths[0]).fontSize) || 10.4;
-      const scale = SM_VERT_TARGET_H/maxH;
-      const newFontPx = Math.max(SM_VERT_MIN_FONT, baseFontPx*scale);
-      ths.forEach(th=>{ th.style.fontSize = newFontPx+'px'; });
+      const cs   = getComputedStyle(ths[0]);
+      const base = parseFloat(cs.fontSize) || 10.4;
+      // El padding vertical NO escala con la fuente. Incluirlo en la regla de
+      // tres hacía que el ajuste se pasara de largo y encogiera de más.
+      const pad  = (parseFloat(cs.paddingTop)||0) + (parseFloat(cs.paddingBottom)||0);
 
-      let fittedH = 0;
-      ths.forEach(th=>{ if(th.scrollHeight>fittedH) fittedH=th.scrollHeight; });
-      ths.forEach(th=>{ th.style.height = fittedH+'px'; });
+      // Una sola regla de tres se queda corta cuando hay redondeos de layout;
+      // un par de refinamientos convergen al tamaño mayor que sí cabe.
+      let font = base;
+      for(let i=0; i<SM_VERT_PASSES && maxH>SM_VERT_TARGET_H && font>SM_VERT_MIN_FONT; i++){
+        const textH = Math.max(1, maxH - pad);
+        const next  = font * Math.max(1, SM_VERT_TARGET_H - pad) / textH;
+        font = Math.max(SM_VERT_MIN_FONT, Math.min(font, next));
+        ths.forEach(th=>{ th.style.fontSize = font+'px'; });
+        maxH = 0;
+        ths.forEach(th=>{ if(th.scrollHeight>maxH) maxH=th.scrollHeight; });
+      }
+
+      ths.forEach(th=>{ th.style.height = maxH+'px'; });
+      table.dataset.smAutofit = maxH<=SM_VERT_TARGET_H ? 'fit' : 'min-font';
     });
   }
+
+  // El ajuste depende de las métricas del texto, así que hay que rehacerlo
+  // cuando cambian la tipografía (el panel de formato cambia --fb/--ft, y con
+  // otra familia el mismo nombre ocupa otra altura) o el zoom/ancho de la
+  // ventana. Antes solo corría al construir la tabla: el tamaño calculado se
+  // quedaba congelado contra la tipografía vieja.
+  let _smAutofitRaf = 0;
+  function smScheduleAutofit(){
+    const c = document.getElementById('sm-table-container');
+    if(!c || !c.querySelector('.sm-th-vert')) return;
+    cancelAnimationFrame(_smAutofitRaf);
+    _smAutofitRaf = requestAnimationFrame(()=>smAutofitVerticalHeaders(c));
+  }
+  window.addEventListener('resize', smScheduleAutofit);
+  (function hookFormatPanel(){
+    const orig = window.applyFormat;
+    if(typeof orig !== 'function') return;
+    window.applyFormat = function(){
+      const r = orig.apply(this, arguments);
+      // Dos rAF: el primero deja que el navegador aplique las nuevas variables
+      // CSS, el segundo mide ya con la tipografía nueva.
+      requestAnimationFrame(()=>requestAnimationFrame(smScheduleAutofit));
+      return r;
+    };
+  })();
 
   // ── PDF Configuration (alineación, logo, leyenda, tipografía de cajas) ──
   const SM_PDF_CONFIG_KEY = 'nmc-sm-pdf-config';
