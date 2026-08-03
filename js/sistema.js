@@ -155,40 +155,53 @@ function kCard(label, val, cls, sub = '') {
 
 
 // ── LOGO AUTO-FIT: syncs logo height to --fh text block ──────────────────
-(function initLogoAutoFit(){
-  function syncLogo(){
-    const wrap = document.getElementById('logo-text-wrap');
-    const logo = document.getElementById('hdr-logo');
-    if(!wrap || !logo) return;
-    // Only auto-fit if the user hasn't manually overridden via --logo-h
-    const manualH = document.documentElement.style.getPropertyValue('--logo-h');
-    if(manualH) return;
-    const h = wrap.getBoundingClientRect().height;
-    if(h > 0) logo.style.height = h + 'px';
+// El alto del logo sigue al bloque de texto del encabezado, salvo que el
+// usuario fije --logo-h a mano (ese valor se persiste en los ajustes). La
+// altura por defecto vive en CSS como height:var(--logo-h,56px): así, al
+// soltar la altura en línea, el override manual vuelve a tener efecto — antes
+// la comprobación de --logo-h no servía de nada porque ninguna regla leía esa
+// variable y el alto en línea del autofit ganaba siempre.
+function syncLogoAutoFit(){
+  const wrap = document.getElementById('logo-text-wrap');
+  const logo = document.getElementById('hdr-logo');
+  if(!wrap || !logo) return;
+  const manualH = getComputedStyle(document.documentElement)
+                    .getPropertyValue('--logo-h').trim();
+  if(manualH){
+    if(logo.style.height) logo.style.height = '';  // devuelve el mando al CSS
+    return;
   }
+  const h = wrap.getBoundingClientRect().height;
+  if(h > 0) logo.style.height = h + 'px';
+}
 
-  // Run on load
+(function initLogoAutoFit(){
+  const schedule = () => requestAnimationFrame(syncLogoAutoFit);
+
   window.addEventListener('DOMContentLoaded', () => {
-    syncLogo();
+    syncLogoAutoFit();
+
     // Observe the text block for any size changes (font-size, viewport, format panel)
     if(window.ResizeObserver){
-      const ro = new ResizeObserver(() => syncLogo());
       const wrap = document.getElementById('logo-text-wrap');
-      if(wrap) ro.observe(wrap);
+      if(wrap) new ResizeObserver(schedule).observe(wrap);
     }
-  });
 
-  // Re-sync when format panel changes font (--fh changes trigger layout reflow)
-  window._originalApplyFormat = null;
-  window.addEventListener('DOMContentLoaded', () => {
+    // Las fuentes web (Syne/Inter/Outfit) terminan de cargar después de
+    // DOMContentLoaded y cambian la altura del bloque de texto.
+    if(document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+
+    // Re-sync when format panel changes font (--fh changes trigger layout reflow)
     const orig = window.applyFormat;
-    window.applyFormat = function(){
-      orig && orig();
-      // Small delay lets font reflow complete before measuring
-      requestAnimationFrame(() => requestAnimationFrame(syncLogo));
-    };
-    // Also sync on window resize
-    window.addEventListener('resize', () => requestAnimationFrame(syncLogo));
+    if(typeof orig === 'function'){
+      window.applyFormat = function(){
+        const r = orig.apply(this, arguments);
+        // Dos rAF: el reflow de la tipografía nueva termina antes de medir
+        requestAnimationFrame(schedule);
+        return r;
+      };
+    }
+    window.addEventListener('resize', schedule);
   });
 })();
 
@@ -701,8 +714,8 @@ function resetFormat(){
   document.documentElement.style.removeProperty('--logo-h');
   document.documentElement.style.removeProperty('--logo-w');
   const hl=document.getElementById('hdr-logo'); if(hl){hl.style.height='';hl.style.width='';}
-  // Resume auto-fit
-  requestAnimationFrame(()=>{ const w2=document.getElementById('logo-text-wrap'); const l2=document.getElementById('hdr-logo'); if(w2&&l2){ const h2=w2.getBoundingClientRect().height; if(h2>0) l2.style.height=h2+'px'; } });
+  // Resume auto-fit — misma función que usa el autofit, sin duplicar la medida
+  requestAnimationFrame(syncLogoAutoFit);
   showToast('\u21ba Formato restaurado');
 }
 
@@ -987,15 +1000,43 @@ const CHART_TYPES = {
     cumplimiento:{ current:'number', options:['number','donut','progress'] }
   },
   panel: {
-    area:   { current:'bar', options:['bar','pie','donut'] },
-    cov:    { current:'bar', options:['bar','pie','donut'] },
-    status: { current:'bar', options:['bar','stacked','donut'] }
+    area:   { current:'bar', options:['bar','pie','donut','combo'],
+              combo:{ line:'pctApr',      secondary:true, values:false } },
+    cov:    { current:'bar', options:['bar','pie','donut','combo'],
+              combo:{ line:'examsPerEmp', secondary:true, values:false } },
+    status: { current:'bar', options:['bar','stacked','donut','combo'],
+              combo:{ line:'pctApr',      secondary:true, values:false } }
   }
+};
+
+// Series disponibles como LÍNEA del combo, por panel. La serie de columnas la
+// fija el propio panel; aquí solo se elige qué se superpone como línea — igual
+// que el cuadro "Combo" de Excel, donde cada serie escoge su tipo y si vive en
+// el eje secundario.
+const COMBO_LINES = {
+  area:   [
+    {key:'pctApr',      label:'% Aprobación',        fmt:'pct'},
+    {key:'exams',       label:'Exámenes únicos',     fmt:'num'},
+    {key:'examsPerEmp', label:'Exámenes / empleado', fmt:'dec'},
+    {key:'pend',        label:'Pendientes',          fmt:'num'}
+  ],
+  cov:    [
+    {key:'examsPerEmp', label:'Exámenes / empleado', fmt:'dec'},
+    {key:'emps',        label:'Empleados',           fmt:'num'},
+    {key:'pctApr',      label:'% Aprobación',        fmt:'pct'},
+    {key:'pctCov',      label:'% de la cobertura máx.', fmt:'pct'}
+  ],
+  status: [
+    {key:'pctApr',      label:'% Aprobación',        fmt:'pct'},
+    {key:'emps',        label:'Total empleados',     fmt:'num'},
+    {key:'pend',        label:'Pendientes',          fmt:'num'},
+    {key:'exams',       label:'Exámenes únicos',     fmt:'num'}
+  ]
 };
 
 const KPI_LABELS   = { empleados:'Empleados', aprobados:'Aprobados', pendientes:'Pendientes', cumplimiento:'Cumplimiento' };
 const PANEL_LABELS = { area:'Empleados por Área', cov:'Cobertura de Exámenes', status:'Aprobados vs Pendientes' };
-const TYPE_ICONS   = { number:'🔢', bar:'▬', pie:'◑', donut:'◎', progress:'▭', stacked:'⊟' };
+const TYPE_ICONS   = { number:'🔢', bar:'▬', pie:'◑', donut:'◎', progress:'▭', stacked:'⊟', combo:'📊' };
 
 function openChartTypePanel(){
   _renderChartTypeRows();
@@ -1017,25 +1058,70 @@ function _renderChartTypeRows(){
       </div>
     </div>`).join('');
 
-  // Panel rows
+  // Panel rows — con sub-fila de configuración cuando el tipo es "combo"
   const panelContainer = document.getElementById('ct-panel-rows');
   panelContainer.innerHTML = Object.entries(CHART_TYPES.panel).map(([key, cfg]) => `
-    <div class="ct-row">
-      <span class="ct-row-label">${PANEL_LABELS[key]}</span>
-      <div class="ct-btns">
-        ${cfg.options.map(t => `
-          <button class="ct-btn ${cfg.current===t?'active':''}"
-            onclick="setChartType('panel','${key}','${t}')">
-            ${TYPE_ICONS[t]} ${t}
-          </button>`).join('')}
+    <div class="ct-group">
+      <div class="ct-row">
+        <span class="ct-row-label">${PANEL_LABELS[key]}</span>
+        <div class="ct-btns">
+          ${cfg.options.map(t => `
+            <button class="ct-btn ${cfg.current===t?'active':''}"
+              onclick="setChartType('panel','${key}','${t}')">
+              ${TYPE_ICONS[t]} ${t}
+            </button>`).join('')}
+        </div>
       </div>
+      ${cfg.current==='combo' ? _comboConfigRow(key, cfg) : ''}
     </div>`).join('');
+}
+
+// Sub-fila del combo: qué serie va como línea, si usa eje secundario y si
+// muestra etiquetas de datos sobre las columnas.
+function _comboConfigRow(key, cfg){
+  const c    = _comboCfg(key);
+  const opts = COMBO_LINES[key] || [];
+  return `
+    <div class="ct-sub">
+      <span class="ct-sub-lbl">↳ Serie de línea</span>
+      <select class="ct-sel" onchange="setComboOption('${key}','line',this.value)">
+        ${opts.map(o => `<option value="${o.key}" ${c.line===o.key?'selected':''}>${o.label}</option>`).join('')}
+      </select>
+      <label class="ct-chk">
+        <input type="checkbox" ${c.secondary?'checked':''}
+          onchange="setComboOption('${key}','secondary',this.checked)"> Eje secundario
+      </label>
+      <label class="ct-chk">
+        <input type="checkbox" ${c.values?'checked':''}
+          onchange="setComboOption('${key}','values',this.checked)"> Etiquetas de datos
+      </label>
+    </div>`;
+}
+
+// Devuelve la config de combo del panel, rellenando defaults — tolera ajustes
+// guardados antes de que existiera el tipo "combo".
+function _comboCfg(key){
+  const cfg = CHART_TYPES.panel[key];
+  if(!cfg) return { line:null, secondary:true, values:false };
+  if(!cfg.combo) cfg.combo = {};
+  const opts = COMBO_LINES[key] || [];
+  if(!opts.some(o => o.key === cfg.combo.line)) cfg.combo.line = opts.length ? opts[0].key : null;
+  if(typeof cfg.combo.secondary !== 'boolean') cfg.combo.secondary = true;
+  if(typeof cfg.combo.values    !== 'boolean') cfg.combo.values    = false;
+  return cfg.combo;
 }
 
 function setChartType(group, key, type){
   CHART_TYPES[group][key].current = type;
   _renderChartTypeRows();    // refresh active buttons
   renderDashboard();         // re-render charts
+}
+
+function setComboOption(key, prop, value){
+  const c = _comboCfg(key);
+  c[prop] = value;
+  _renderChartTypeRows();
+  renderDashboard();
 }
 
 // ── SVG helpers (pie / donut) ────────────────────────────────────
@@ -1090,6 +1176,241 @@ function _svgDonut(data, r=70, cx=100, cy=100, size=200){
     <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
       <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg3)" stroke-width="22"/>${arcs}</svg>
     <div style="min-width:110px">${legend}</div></div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// COMBO CHART (estilo Excel) — columnas + línea sobre eje secundario
+// ════════════════════════════════════════════════════════════════
+// Equivale al "Combo Chart" de Excel: una o varias series de columnas
+// (agrupadas o apiladas) contra el eje primario izquierdo, más una serie de
+// línea con marcadores que puede escalarse en su propio eje secundario
+// derecho — así conviven magnitudes distintas (conteos vs. porcentajes) sin
+// que la de menor rango quede aplastada contra el piso del gráfico.
+
+// Escala del eje: elige un PASO "bonito" y devuelve paso × divisiones, de modo
+// que las marcas de la rejilla caigan siempre en números legibles en vez de en
+// fracciones del máximo (p. ej. 42 → 0/15/30/45/60, no 0/12.5/25/37.5/50).
+// intOnly fuerza un paso entero para los ejes que cuentan personas o exámenes.
+const _NICE_STEPS = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+function _niceAxis(v, ticks, intOnly){
+  if(!isFinite(v) || v <= 0) return intOnly ? ticks : 1;
+  const raw  = v / ticks;
+  const exp  = Math.pow(10, Math.floor(Math.log10(raw)));
+  let   step = (_NICE_STEPS.find(n => n*exp >= raw - 1e-9) || 10) * exp;
+  if(intOnly) step = Math.max(1, Math.ceil(step));
+  return step * ticks;
+}
+
+function _cmbFmt(v, fmt){
+  if(!isFinite(v)) return '—';
+  if(fmt === 'pct') return Math.round(v) + '%';
+  if(fmt === 'dec') return (Math.round(v*10)/10).toFixed(1);
+  return String(Math.round(v*100)/100);
+}
+
+// Recorta etiquetas largas del eje X — el texto completo queda en el <title>
+function _cmbTrim(s, n){
+  s = String(s==null ? '' : s);
+  return s.length > n ? s.slice(0, n-1) + '…' : s;
+}
+
+// spec = {
+//   cats:      ['Área A', …],
+//   bars:      [{label, c, values:[…]}, …],   // 1..n series de columnas
+//   stacked:   bool,                          // apiladas vs agrupadas
+//   line:      {label, c, values:[…], fmt} | null,
+//   secondary: bool,                          // línea en eje derecho propio
+//   values:    bool,                          // etiquetas de datos
+//   barAxis:   'num'|'pct'|'dec'              // formato del eje primario
+// }
+function _svgCombo(spec){
+  const cats = spec.cats || [];
+  const bars = (spec.bars || []).filter(b => b && Array.isArray(b.values));
+  const line = (spec.line && Array.isArray(spec.line.values)) ? spec.line : null;
+
+  if(!cats.length || !bars.length){
+    return `<div style="padding:1.5rem 0;text-align:center;color:var(--text3);font-size:.78rem">
+      Sin datos para graficar</div>`;
+  }
+
+  // El viewBox se construye a la medida real del panel (1 unidad = 1 px CSS),
+  // no a un lienzo fijo estirado por CSS: si no, el panel ancho ampliaba también
+  // la tipografía de ejes y etiquetas y las tres gráficas se veían a escalas
+  // distintas. La altura sigue al ancho dentro de un rango legible.
+  const W = Math.max(320, Math.round(spec.width || 720));
+  const H = Math.round(Math.min(380, Math.max(250, W * 0.44)));
+  const useSec = !!(line && spec.secondary);
+  const mT = 16, mB = 92, mL = 48, mR = useSec ? 56 : 20;
+  const pw = W - mL - mR, ph = H - mT - mB;
+  const base = mT + ph;
+  const TICKS = 4;
+  const barFmt = spec.barAxis || 'num';
+
+  // ── Escalas ──────────────────────────────────────────────────
+  const catTotal = i => bars.reduce((s,b) => s + (+b.values[i] || 0), 0);
+  const rawBarMax = spec.stacked
+    ? Math.max(...cats.map((_,i) => catTotal(i)), 0)
+    : Math.max(...bars.flatMap(b => b.values.map(v => +v || 0)), 0);
+  const barMax = _niceAxis(rawBarMax, TICKS, barFmt === 'num');
+
+  const rawLineMax = line ? Math.max(...line.values.map(v => +v || 0), 0) : 0;
+  // El % siempre se lee mejor con el eje anclado en 100
+  const lineMax = !line ? 1
+    : useSec ? (line.fmt === 'pct' ? 100 : _niceAxis(rawLineMax, TICKS, line.fmt === 'num'))
+             : barMax;
+
+  const yBar  = v => base - (Math.max(0, +v || 0) / barMax)  * ph;
+  const yLine = v => base - (Math.max(0, +v || 0) / lineMax) * ph;
+
+  // ── Rejilla y ejes ───────────────────────────────────────────
+  let grid = '';
+  for(let t = 0; t <= TICKS; t++){
+    const y = base - (ph * t / TICKS);
+    grid += `<line x1="${mL}" y1="${y.toFixed(1)}" x2="${mL+pw}" y2="${y.toFixed(1)}"
+      stroke="var(--border)" stroke-width="1" ${t ? 'stroke-dasharray="3 4"' : ''}/>
+      <text x="${mL-8}" y="${(y+3.5).toFixed(1)}" text-anchor="end" class="cmb-axis"
+        >${_cmbFmt(barMax*t/TICKS, barFmt)}</text>`;
+    if(useSec){
+      grid += `<text x="${mL+pw+8}" y="${(y+3.5).toFixed(1)}" text-anchor="start" class="cmb-axis cmb-axis2"
+        >${_cmbFmt(lineMax*t/TICKS, line.fmt)}</text>`;
+    }
+  }
+
+  // ── Columnas ─────────────────────────────────────────────────
+  const bandW = pw / cats.length;
+  const groupW = Math.min(bandW * 0.68, 54);
+  const seriesW = spec.stacked ? groupW : groupW / bars.length;
+  const cx = i => mL + bandW * i + bandW / 2;
+
+  let rects = '', labels = '';
+  cats.forEach((cat, i) => {
+    let stackTop = base;
+    bars.forEach((b, si) => {
+      const v = +b.values[i] || 0;
+      const h = base - yBar(v);
+      if(h <= 0) return;
+      const x = spec.stacked
+        ? cx(i) - groupW/2
+        : cx(i) - groupW/2 + seriesW * si;
+      const y = spec.stacked ? stackTop - h : yBar(v);
+      if(spec.stacked) stackTop -= h;
+      rects += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(seriesW-1.5).toFixed(1)}"
+        height="${h.toFixed(1)}" rx="2" fill="${b.c}" opacity=".92"
+        ><title>${esc(cat)} — ${esc(b.label)}: ${_cmbFmt(v, barFmt)}</title></rect>`;
+    });
+
+    if(spec.values){
+      const totV = spec.stacked ? catTotal(i) : (+bars[0].values[i] || 0);
+      if(totV > 0){
+        labels += `<text x="${cx(i).toFixed(1)}" y="${(yBar(totV)-5).toFixed(1)}"
+          text-anchor="middle" class="cmb-dl">${_cmbFmt(totV, barFmt)}</text>`;
+      }
+    }
+  });
+
+  // ── Etiquetas del eje X (rotadas para que quepan muchas áreas) ─
+  const xLabels = cats.map((cat, i) => `
+    <text transform="translate(${cx(i).toFixed(1)},${base+12}) rotate(-32)"
+      text-anchor="end" class="cmb-xlbl">${esc(_cmbTrim(cat, 18))}<title>${esc(cat)}</title></text>`).join('');
+
+  // ── Línea + marcadores ───────────────────────────────────────
+  let lineArt = '';
+  if(line){
+    const pts = cats.map((_, i) => [cx(i), yLine(line.values[i])]);
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    lineArt = `<path d="${d}" fill="none" stroke="${line.c}" stroke-width="2.5"
+      stroke-linejoin="round" stroke-linecap="round" class="cmb-line"/>`;
+    lineArt += pts.map((p, i) => `
+      <circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="var(--bg2)"
+        stroke="${line.c}" stroke-width="2.5"
+        ><title>${esc(cats[i])} — ${esc(line.label)}: ${_cmbFmt(line.values[i], line.fmt)}</title></circle>`).join('');
+    if(spec.values){
+      // Con columnas bajas el marcador queda a la altura del tope de la barra
+      // y las dos etiquetas se encimaban: en ese caso la de la línea sube un
+      // renglón más en vez de escribirse sobre la de la columna.
+      lineArt += pts.map((p, i) => {
+        const barTop = yBar(spec.stacked ? catTotal(i) : (+bars[0].values[i] || 0));
+        const dy = Math.abs(p[1] - barTop) < 14 ? -22 : -9;
+        return `<text x="${p[0].toFixed(1)}" y="${(p[1]+dy).toFixed(1)}"
+          text-anchor="middle" class="cmb-dl" fill="${line.c}"
+          >${_cmbFmt(line.values[i], line.fmt)}</text>`;
+      }).join('');
+    }
+  }
+
+  // ── Leyenda (HTML, igual que pie/donut) ──────────────────────
+  const legendItems = bars.map(b => ({label:b.label, c:b.c, shape:'square'}))
+    .concat(line ? [{label:line.label + (useSec ? ' (eje der.)' : ''), c:line.c, shape:'line'}] : []);
+  const legend = legendItems.map(it => `
+    <span style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--text2)">
+      <span style="width:${it.shape==='line'?'14px':'10px'};height:${it.shape==='line'?'3px':'10px'};
+        border-radius:${it.shape==='line'?'2px':'2px'};background:${it.c};display:inline-block;flex-shrink:0"></span>
+      ${esc(it.label)}</span>`).join('');
+
+  // La animación de entrada solo corre en el render inicial: al reajustar por
+  // arrastre del tirador volvería a dispararse en cada paso.
+  const anim = spec.animate === false ? '' : ' cmb-anim';
+
+  return `<div class="cmb-wrap">
+    <svg viewBox="0 0 ${W} ${H}" class="cmb-svg" preserveAspectRatio="xMidYMid meet" role="img">
+      ${grid}
+      <g class="cmb-bars${anim}">${rects}</g>
+      ${labels}
+      ${lineArt}
+      ${xLabels}
+      <line x1="${mL}" y1="${base}" x2="${mL+pw}" y2="${base}" stroke="var(--border2)" stroke-width="1.5"/>
+    </svg>
+    <div class="cmb-legend">${legend}</div>
+  </div>`;
+}
+
+// ── Montaje del combo: mide el contenedor y lo mantiene ajustado ──
+// El panel se puede redimensionar con el tirador de "Ordenar tablero", así que
+// el gráfico se vuelve a dibujar al ancho nuevo en vez de estirarse.
+const _comboRO = window.ResizeObserver ? new ResizeObserver(entries => {
+  entries.forEach(en => {
+    const el = en.target;
+    const w  = Math.round(en.contentRect.width);
+    if(!w) return;
+    // El panel cambió a otro tipo de gráfica: se suelta el spec y se deja de
+    // observar para no reinyectar un combo sobre el render actual.
+    if(!el._comboSpec || !el.querySelector('.cmb-svg')){ el._comboSpec = null; return; }
+    if(Math.abs(w - (el._comboW || 0)) < 8) return;
+    el._comboW = w;
+    el.innerHTML = _svgCombo(Object.assign({}, el._comboSpec, {width:w, animate:false}));
+  });
+}) : null;
+
+function _comboInto(containerId, spec){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const w = Math.round(el.clientWidth) || 720;
+  el._comboSpec = spec;
+  el._comboW    = w;
+  el.innerHTML  = _svgCombo(Object.assign({}, spec, {width:w}));
+  if(_comboRO && !el._comboObserved){ el._comboObserved = true; _comboRO.observe(el); }
+}
+
+// Resuelve los valores de la serie de línea elegida contra las estadísticas
+// por área ya agregadas en renderDashboard(). Un solo lugar donde vive la
+// definición de cada métrica, para que los tres paneles coincidan.
+function _comboLineSeries(panelKey, cats, stats){
+  const c    = _comboCfg(panelKey);
+  const meta = (COMBO_LINES[panelKey] || []).find(o => o.key === c.line);
+  if(!meta) return null;
+
+  const maxExams = Math.max(...cats.map(a => (stats[a]||{}).exams || 0), 1);
+  const pick = {
+    pctApr:      a => { const s = stats[a]||{}; return s.emps ? (s.apr/s.emps*100) : 0; },
+    pctCov:      a => ((stats[a]||{}).exams || 0) / maxExams * 100,
+    exams:       a => (stats[a]||{}).exams || 0,
+    emps:        a => (stats[a]||{}).emps  || 0,
+    pend:        a => (stats[a]||{}).pend  || 0,
+    examsPerEmp: a => { const s = stats[a]||{}; return s.emps ? (s.exams/s.emps) : 0; }
+  }[meta.key];
+  if(!pick) return null;
+
+  return { label: meta.label, fmt: meta.fmt, c: 'var(--red)', values: cats.map(pick) };
 }
 
 // ── KPI card renderers per type ──────────────────────────────────
@@ -1214,11 +1535,33 @@ function _updateRestoreBar(){
   ).join('');
 }
 
+// Agregado único por área — lo consumen los tres paneles (y las series de
+// línea del combo), así ninguna gráfica define su propia métrica por su lado.
+function _dashAreaStats(){
+  const stats = {};
+  EMPLOYEES.forEach(e => {
+    const a = (e.area||'Sin área').trim() || 'Sin área';
+    if(!stats[a]) stats[a] = {emps:0, apr:0, pend:0, proc:0, inact:0, examsSet:new Set()};
+    const s = stats[a];
+    s.emps++;
+    if(e.estatus==='Aprobado')        s.apr++;
+    else if(e.estatus==='Pendiente')  s.pend++;
+    else if(e.estatus==='En Proceso') s.proc++;
+    else                              s.inact++;
+    (e.exam_ids||[]).forEach(xid => s.examsSet.add(xid));
+  });
+  Object.values(stats).forEach(s => { s.exams = s.examsSet.size; });
+  return stats;
+}
+
 function renderDashboard(){
   const tot=EMPLOYEES.length;
   const apr=EMPLOYEES.filter(e=>e.estatus==='Aprobado').length;
   const pend=EMPLOYEES.filter(e=>e.estatus==='Pendiente').length;
-  const pct=(apr/tot*100).toFixed(1);
+  // Sin empleados cargados, apr/tot es NaN y "NaN%" se filtraba hasta las
+  // tarjetas KPI y los anchos de barra — se ancla en 0.
+  const pct=(tot ? apr/tot*100 : 0).toFixed(1);
+  const _areaStats = _dashAreaStats();
 
   // Build KPI defs — skip hidden ones
   const kpiDefs=[
@@ -1249,14 +1592,26 @@ function renderDashboard(){
 
   // Area bar chart
   const ac={};
-  EMPLOYEES.forEach(e=>{ if(e.area) ac[e.area]=(ac[e.area]||0)+1; });
+  // Se normaliza igual que covByArea/areaStatus: sin el trim, "Área " y "Área"
+  // salían como dos barras y la serie de línea del combo no encontraba el área.
+  EMPLOYEES.forEach(e=>{ const a=(e.area||'').trim(); if(a) ac[a]=(ac[a]||0)+1; });
   const sorted=Object.entries(ac).sort((a,b)=>b[1]-a[1]).slice(0,12);
-  const maxA=Math.max(...sorted.map(a=>a[1]));
+  // Sin áreas, Math.max(...[]) es -Infinity y todos los anchos salen NaN
+  const maxA=Math.max(...sorted.map(a=>a[1]), 1);
   const aType = CHART_TYPES.panel.area.current;
   if(aType === 'pie'){
     document.getElementById('area-chart').innerHTML = _svgPie(sorted.map(([label,v],i)=>({label,v,c:PIE_PAL[i%PIE_PAL.length]})),85,100,100,200);
   } else if(aType === 'donut'){
     document.getElementById('area-chart').innerHTML = _svgDonut(sorted.map(([label,v],i)=>({label,v,c:PIE_PAL[i%PIE_PAL.length]})),65,100,100,200);
+  } else if(aType === 'combo'){
+    const cats = sorted.map(([a])=>a);
+    _comboInto('area-chart', {
+      cats,
+      bars: [{label:'Empleados', c:'var(--accent)', values: sorted.map(([,v])=>v)}],
+      line: _comboLineSeries('area', cats, _areaStats),
+      secondary: _comboCfg('area').secondary,
+      values:    _comboCfg('area').values
+    });
   } else {
     document.getElementById('area-chart').innerHTML = '';
     const aFrag = document.createDocumentFragment();
@@ -1298,6 +1653,15 @@ function renderDashboard(){
   } else if(cType === 'donut'){
     document.getElementById('cov-chart').innerHTML = _svgDonut(
       covArr.map(([label,v],i)=>({label,v,c:PIE_PAL[i%PIE_PAL.length]})),65,100,100,200);
+  } else if(cType === 'combo'){
+    const cats = covArr.map(([a])=>a);
+    _comboInto('cov-chart', {
+      cats,
+      bars: [{label:'Exámenes únicos', c:'var(--green)', values: covArr.map(([,v])=>v)}],
+      line: _comboLineSeries('cov', cats, _areaStats),
+      secondary: _comboCfg('cov').secondary,
+      values:    _comboCfg('cov').values
+    });
   } else {
     document.getElementById('cov-chart').innerHTML = '';
     const cFrag = document.createDocumentFragment();
@@ -1346,6 +1710,25 @@ function renderDashboard(){
       {label:'En Proceso',v:procTot,c:'var(--accent)'},
       {label:'Inactivos',v:inactTot,c:'var(--red)'}
     ],65,100,100,200);
+  } else if(stType === 'combo' || stType === 'stacked'){
+    // Columnas apiladas por estatus + línea de % de aprobación: el combo
+    // "stacked column + line" de Excel. El tipo "stacked" es el mismo gráfico
+    // sin la línea superpuesta (antes caía al render de barras horizontales,
+    // así que la opción no hacía nada).
+    const cats = sortedAS.map(([a])=>a);
+    _comboInto('status-area-chart', {
+      cats,
+      stacked: true,
+      bars: [
+        {label:'Aprobados',  c:'var(--green)',  values: sortedAS.map(([,v])=>v.apr)},
+        {label:'Pendientes', c:'var(--yellow)', values: sortedAS.map(([,v])=>v.pend)},
+        {label:'En Proceso', c:'var(--accent)', values: sortedAS.map(([,v])=>v.proc)},
+        {label:'Inactivos',  c:'var(--red)',    values: sortedAS.map(([,v])=>v.inact)}
+      ],
+      line: stType === 'combo' ? _comboLineSeries('status', cats, _areaStats) : null,
+      secondary: _comboCfg('status').secondary,
+      values:    _comboCfg('status').values
+    });
   } else {
   document.getElementById('status-area-chart').innerHTML = sortedAS.map(([area, v]) => {
     const aprW  = (v.apr  / maxAS * 100).toFixed(1);
@@ -4039,9 +4422,18 @@ function loadSettings(){
     if(s.chartTypes){
       Object.keys(s.chartTypes).forEach(group => {
         Object.keys(s.chartTypes[group]).forEach(key => {
-          if(CHART_TYPES[group]?.[key]) CHART_TYPES[group][key].current = s.chartTypes[group][key].current;
+          const target = CHART_TYPES[group]?.[key];
+          const saved  = s.chartTypes[group][key];
+          if(!target || !saved) return;
+          // Solo se acepta un tipo que siga existiendo en las opciones: un
+          // ajuste viejo con un tipo retirado dejaba el panel en blanco.
+          if(target.options.includes(saved.current)) target.current = saved.current;
+          // La configuración del combo también se persiste (serie de línea,
+          // eje secundario, etiquetas); _comboCfg rellena lo que falte.
+          if(saved.combo) target.combo = Object.assign({}, target.combo, saved.combo);
         });
       });
+      Object.keys(CHART_TYPES.panel).forEach(k => _comboCfg(k));
     }
 
     // Re-apply th/td scoped vars to DOM
@@ -4084,6 +4476,13 @@ function loadSettings(){
     // settings saved via "Guardar cambios" only appear after some other
     // event happens to call renderDashboard() again.
     renderDashboard();
+
+    // loadSettings() corre 400 ms después del arranque, cuando el autofit del
+    // logo ya fijó una altura en línea. Sin este re-sync, un --logo-h guardado
+    // se restauraba en la variable CSS pero no se veía hasta el primer resize.
+    // Vale también al revés: si el ajuste trae otra tipografía, la altura del
+    // bloque de texto cambia y el logo debe volver a seguirla.
+    requestAnimationFrame(() => requestAnimationFrame(syncLogoAutoFit));
 
   } catch(e){ console.warn('loadSettings error:', e); }
 }
