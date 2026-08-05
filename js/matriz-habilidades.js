@@ -6,9 +6,16 @@
   function smBuildAreaFilter(){
     const sel = document.getElementById('sm-area-filter');
     const current = sel.value;
-    const areas = (typeof ALL_AREAS!=='undefined' && ALL_AREAS.length)
-      ? ALL_AREAS.filter(a=>EMPLOYEES.some(e=>e.area===a))
-      : [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort();
+    // ALL_AREAS es la lista estática del Excel: por sí sola deja fuera las
+    // áreas nuevas (alta de puesto o de empleado). Se une con el padrón y
+    // con el catálogo de gestión, y se conservan las que tengan empleados
+    // (la matriz se construye sobre empleados: sin ellos quedaría vacía).
+    const base = [
+      ...((typeof ALL_AREAS!=='undefined' && ALL_AREAS.length) ? ALL_AREAS : []),
+      ...EMPLOYEES.map(e=>e.area).filter(Boolean),
+      ...((typeof catalogAreas==='function') ? catalogAreas() : [])
+    ];
+    const areas = [...new Set(base)].filter(a=>EMPLOYEES.some(e=>e.area===a)).sort();
     sel.innerHTML = '<option value="">Todas las áreas</option>';
     areas.forEach(a=>{
       const o = document.createElement('option');
