@@ -18,10 +18,22 @@ let PUESTOS     = [];   // { id:"PST-001", nombre, area }
 let ASSIGNMENTS = [];   // { puestoId:"PST-001", examId:"REG-001" }
 
 const _GESTION_LS_KEY = 'nmc-puestos';
+const _GESTION_LS_BAK = 'nmc-puestos-bak-v1';   // respaldo previo a migrar
+const _GESTION_LS_SKIP= 'nmc-puestos-nomigrar'; // lo pone restorePuestosBackup()
+const _GESTION_LS_VER = 2;                      // v2: áreas canonizadas
+let   _puestosNeedMigration = false;            // lo marca loadPuestos()
+// Modo v1: lo activa restorePuestosBackup(). Congela TODA la semántica
+// antigua (ni migración ni traducción de áreas), para que restaurar el
+// respaldo devuelva exactamente el estado anterior y no uno intermedio.
+let   _puestosLegacyMode = (() => {
+  try { return !!localStorage.getItem('nmc-puestos-nomigrar'); } catch(_){ return false; }
+})();
 
 // ── Helpers de identidad ──────────────────────────────────────────
+function _normArea(a){   return String(a||'').trim().toUpperCase(); }
+function _normNombre(n){ return String(n||'').trim().toUpperCase(); }
 function _puestoKey(area, nombre){
-  return `${String(area||'').trim().toUpperCase()}||${String(nombre||'').trim().toUpperCase()}`;
+  return `${_normArea(area)}||${_normNombre(nombre)}`;
 }
 function _findPuesto(area, nombre){
   const k = _puestoKey(area, nombre);
@@ -62,16 +74,72 @@ function _puestoIdsForExam(examId){
   return ASSIGNMENTS.filter(a => a.examId === examId).map(a => a.puestoId);
 }
 
+// ── Vocabulario de áreas (canónico = el del padrón de empleados) ───
+// El Excel legado trae DOS vocabularios de área para el mismo puesto:
+// el del lado examen en ex.aplica ("Produccion", "RH", "Finanzas"…) y
+// el del lado empleado ("MOLDEO", "SECUNDARIOS", "RECURSOS HUMANOS"…).
+// Como la identidad del puesto es área||nombre, tratarlos como distintos
+// partía cada puesto en dos entradas: una con todos sus exámenes y otra
+// vacía — y los empleados caían siempre en la vacía (de ahí los 0/0).
+// El padrón de empleados manda: es el que usan filtros, KPIs y matriz.
+function _empAreaCanon(){
+  const m = {};
+  (typeof EMPLOYEES !== 'undefined' ? EMPLOYEES : []).forEach(e => {
+    const a = String(e.area||'').trim();
+    if(a && !m[_normArea(a)]) m[_normArea(a)] = a;
+  });
+  return m;
+}
+// Áreas del padrón donde realmente existe un puesto con ese nombre.
+function _empAreasForPuestoName(nombre){
+  const key = _normNombre(nombre);
+  const out = new Map();
+  (typeof EMPLOYEES !== 'undefined' ? EMPLOYEES : []).forEach(e => {
+    if(_normNombre(e.puesto) !== key) return;
+    const a = String(e.area||'').trim();
+    if(a) out.set(_normArea(a), a);
+  });
+  return [...out.values()];
+}
+// Traduce el área declarada en ex.aplica al vocabulario del padrón.
+// Manda el padrón: en el Excel la columna del examen es por PUESTO, no
+// por área, así que el examen aplica en todas las áreas donde ese puesto
+// existe (p. ej. JEFE DE LINEA A en KirkHill y en MOLDEO). No basta con
+// validar que el área declarada exista: "PRODUCTION PLANNER" se declara
+// en un área real donde ningún empleado tiene ese puesto.
+// Si el puesto no existe en el padrón, se conserva el área declarada
+// (es un puesto de catálogo, todavía sin gente).
+function _resolveAplicaAreas(area, nombre, canon){
+  if(_puestosLegacyMode) return [String(area||'').trim()];   // semántica v1
+  const reales = _empAreasForPuestoName(nombre);
+  if(reales.length) return reales;
+  const k = _normArea(area);
+  return [canon[k] || String(area||'').trim()];
+}
+// Devuelve la escritura ya en uso para un área si solo difiere en
+// mayúsculas/espacios, para no partirla en dos entradas del catálogo.
+function _canonicalArea(area){
+  const k = _normArea(area);
+  if(!k) return String(area||'').trim();
+  const canon = _empAreaCanon();
+  if(canon[k]) return canon[k];
+  const p = PUESTOS.find(x => _normArea(x.area) === k);
+  return p ? p.area : String(area||'').trim();
+}
+
 // ── Bootstrap (Fase 0) ────────────────────────────────────────────
 // Hidrata PUESTOS/ASSIGNMENTS desde los datos existentes (exam.aplica
 // + EMPLOYEES). Es idempotente y MERGE: solo añade lo que falte, nunca
 // destruye puestos ni asignaciones creados manualmente.
 function bootstrapPuestosFromData(){
+  const canon = _empAreaCanon();
   // 1. Puestos y asignaciones derivados del catálogo de exámenes
   (typeof EXAMS !== 'undefined' ? EXAMS : []).forEach(ex => {
     (ex.aplica || []).forEach(m => {
-      const p = _ensurePuesto(m.area, m.puesto);
-      if(p) assignExam(p.id, ex.id);
+      _resolveAplicaAreas(m.area, m.puesto, canon).forEach(area => {
+        const p = _ensurePuesto(area, m.puesto);
+        if(p) assignExam(p.id, ex.id);
+      });
     });
   });
   // 2. Puestos que solo existen a través de empleados (sin exámenes aún)
@@ -80,10 +148,79 @@ function bootstrapPuestosFromData(){
   });
 }
 
+// ── Migración v1 → v2 ─────────────────────────────────────────────
+// Repara el catálogo ya persistido: unifica la escritura del área,
+// fusiona los puestos duplicados por vocabulario y arrastra consigo sus
+// asignaciones. Devuelve el resumen (y los examIds tocados, para
+// resincronizar ex.aplica una sola vez).
+function migratePuestosCatalog(){
+  const stats = { areasRenombradas:0, puestosFusionados:0, asignacionesMovidas:0, examenes:[] };
+  const canon = _empAreaCanon();
+  if(!Object.keys(canon).length) return stats;   // sin padrón no hay canon
+  const tocados = new Set();
+
+  // 1. Unificar la escritura del área con la del padrón
+  PUESTOS.forEach(p => {
+    const c = canon[_normArea(p.area)];
+    if(c && p.area !== c){ p.area = c; stats.areasRenombradas++; }
+  });
+
+  // 2. Reubicar los puestos mal ubicados, con la misma regla que el
+  //    bootstrap. Solo se mueven los que CARGAN asignaciones: así una
+  //    entrada vacía (puesto dado de alta a mano, o el duplicado que
+  //    quedó sin exámenes) nunca se borra — es el destino, no el origen.
+  PUESTOS.filter(p => {
+    if(p.manual) return false;                                  // alta manual: intocable
+    if(!_examIdsForPuestoId(p.id).length) return false;          // sin exámenes: es destino
+    const reales = _empAreasForPuestoName(p.nombre);
+    return reales.length && !reales.some(a => _normArea(a) === _normArea(p.area));
+  }).forEach(orf => {
+    const destinos = _empAreasForPuestoName(orf.nombre);
+    const examIds  = _examIdsForPuestoId(orf.id);
+    destinos.forEach(area => {
+      const dest = _ensurePuesto(area, orf.nombre);
+      if(!dest || dest.id === orf.id) return;
+      examIds.forEach(xid => {
+        if(!_hasAssignment(dest.id, xid)){ assignExam(dest.id, xid); stats.asignacionesMovidas++; }
+      });
+    });
+    PUESTOS     = PUESTOS.filter(p => p.id !== orf.id);
+    ASSIGNMENTS = ASSIGNMENTS.filter(a => a.puestoId !== orf.id);
+    examIds.forEach(x => tocados.add(x));
+    stats.puestosFusionados++;
+  });
+
+  // 3. Fusionar los que hayan quedado con la misma clave tras canonizar
+  const vistos = {};
+  PUESTOS.slice().forEach(p => {
+    const k = _puestoKey(p.area, p.nombre);
+    if(!vistos[k]){ vistos[k] = p; return; }
+    const keep = vistos[k];
+    _examIdsForPuestoId(p.id).forEach(xid => {
+      if(!_hasAssignment(keep.id, xid)){ assignExam(keep.id, xid); stats.asignacionesMovidas++; }
+      tocados.add(xid);
+    });
+    PUESTOS     = PUESTOS.filter(x => x.id !== p.id);
+    ASSIGNMENTS = ASSIGNMENTS.filter(a => a.puestoId !== p.id);
+    stats.puestosFusionados++;
+  });
+
+  // 4. Descartar asignaciones que apunten a puestos/exámenes inexistentes
+  const pids = new Set(PUESTOS.map(p => p.id));
+  const xids = new Set((typeof EXAMS !== 'undefined' ? EXAMS : []).map(e => e.id));
+  ASSIGNMENTS = ASSIGNMENTS.filter(a => pids.has(a.puestoId) && (!xids.size || xids.has(a.examId)));
+
+  stats.examenes = [...tocados];
+  return stats;
+}
+
 // ── Persistencia (Fase 1) ─────────────────────────────────────────
 function savePuestos(){
   try {
-    const payload = { v:1, ts:Date.now(), puestos:PUESTOS, assignments:ASSIGNMENTS };
+    // En modo v1 no se sella como v2: así, al quitar el flag, la
+    // migración vuelve a ofrecerse en lugar de quedar bloqueada.
+    const payload = { v:(_puestosLegacyMode ? 1 : _GESTION_LS_VER),
+                      ts:Date.now(), puestos:PUESTOS, assignments:ASSIGNMENTS };
     const json = JSON.stringify(payload);
     localStorage.setItem(_GESTION_LS_KEY, json);
     const back = localStorage.getItem(_GESTION_LS_KEY);
@@ -103,9 +240,34 @@ function loadPuestos(){
     if(!d || !Array.isArray(d.puestos) || !Array.isArray(d.assignments)) return false;
     PUESTOS     = d.puestos;
     ASSIGNMENTS = d.assignments;
+    _puestosNeedMigration = !(+d.v >= _GESTION_LS_VER) && !_puestosLegacyMode;
     return true;
   } catch(e){ console.warn('loadPuestos error:', e); return false; }
 }
+
+// Respaldo del estado v1 antes de migrar (solo la primera vez).
+function _backupPuestosV1(){
+  try {
+    const raw = localStorage.getItem(_GESTION_LS_KEY);
+    if(raw && !localStorage.getItem(_GESTION_LS_BAK)) localStorage.setItem(_GESTION_LS_BAK, raw);
+  } catch(_){}
+}
+// Revertir la migración desde la consola: restorePuestosBackup()
+// Deja marcado que no se vuelva a migrar; si no, la recarga siguiente
+// repetiría la migración y la restauración no serviría de nada.
+function restorePuestosBackup(){
+  try {
+    const raw = localStorage.getItem(_GESTION_LS_BAK);
+    if(!raw){ console.warn('No hay respaldo previo a la migración.'); return false; }
+    localStorage.setItem(_GESTION_LS_KEY, raw);
+    localStorage.setItem(_GESTION_LS_SKIP, '1');
+    _puestosLegacyMode = true;
+    console.info('Catálogo restaurado al estado previo (migración desactivada). Recarga la página.');
+    console.info('Para volver a migrar: localStorage.removeItem("' + _GESTION_LS_SKIP + '")');
+    return true;
+  } catch(e){ console.warn('restorePuestosBackup error:', e); return false; }
+}
+window.restorePuestosBackup = restorePuestosBackup;
 
 // Llamar tras cargar un Excel legado para incorporar puestos/asignaciones nuevos
 function syncPuestosAfterImport(){
@@ -140,11 +302,33 @@ function _syncExamAplica(examId){
 // lee sus áreas, puestos y exámenes desde aquí, no derivándolos de
 // empleados existentes ni de ex.aplica.
 // ════════════════════════════════════════════════════════════════
+// Áreas y puestos se comparan normalizados (igual que _puestoKey): con
+// `===` una diferencia de mayúsculas partía el área en dos entradas del
+// desplegable y dejaba sus puestos fuera del alta.
 function catalogAreas(){
-  return [...new Set(PUESTOS.map(p => p.area).filter(Boolean))].sort();
+  const m = new Map();
+  PUESTOS.forEach(p => {
+    const a = String(p.area||'').trim();
+    if(a && !m.has(_normArea(a))) m.set(_normArea(a), a);
+  });
+  return [...m.values()].sort((a,b) => a.localeCompare(b));
 }
 function catalogPuestosForArea(area){
-  return [...new Set(PUESTOS.filter(p => p.area === area).map(p => p.nombre).filter(Boolean))].sort();
+  const k = _normArea(area);
+  const m = new Map();
+  PUESTOS.forEach(p => {
+    if(_normArea(p.area) !== k) return;
+    const n = String(p.nombre||'').trim();
+    if(n && !m.has(_normNombre(n))) m.set(_normNombre(n), n);
+  });
+  return [...m.values()].sort((a,b) => a.localeCompare(b));
+}
+// Pares área/puesto del catálogo, para que los filtros del sistema
+// incluyan puestos dados de alta que aún no tienen empleados.
+function catalogPuestoPairs(){
+  return PUESTOS
+    .map(p => ({ area:String(p.area||'').trim(), puesto:String(p.nombre||'').trim() }))
+    .filter(x => x.area && x.puesto);
 }
 // Devuelve los examIds asignados a un puesto del catálogo.
 // - array (posiblemente vacío) si el puesto EXISTE en el catálogo
@@ -161,6 +345,7 @@ function examIdsForPuestoNameArea(nombre, area){
 }
 window.catalogAreas            = catalogAreas;
 window.catalogPuestosForArea   = catalogPuestosForArea;
+window.catalogPuestoPairs      = catalogPuestoPairs;
 window.examIdsForPuestoNameArea = examIdsForPuestoNameArea;
 
 // Refresca las vistas del sistema principal cuando cambian los exámenes
@@ -236,7 +421,9 @@ function gDeleteExam(id){
 function gSavePuesto(){
   const id     = document.getElementById('gp-id').value;   // vacío = nuevo
   const nombre = document.getElementById('gp-nombre').value.trim();
-  const area   = document.getElementById('gp-area').value.trim();
+  // Reutiliza la escritura ya en uso si solo cambian mayúsculas/espacios,
+  // para no crear un área paralela ("Moldeo" vs "MOLDEO").
+  const area   = _canonicalArea(document.getElementById('gp-area').value);
   const errEl  = document.getElementById('gp-error');
 
   if(!nombre || !area){ errEl.textContent = 'Nombre y área son obligatorios.'; errEl.style.display='block'; return; }
@@ -252,7 +439,8 @@ function gSavePuesto(){
     p.nombre = nombre; p.area = area;
     showToast(`✏️ Puesto actualizado: ${nombre}`);
   } else {
-    PUESTOS.push({ id:_nextPuestoId(), nombre, area });
+    // manual:true → la migración del catálogo nunca lo reubica ni lo fusiona
+    PUESTOS.push({ id:_nextPuestoId(), nombre, area, manual:true });
     showToast(`➕ Puesto creado: ${nombre}`);
   }
   savePuestos();
@@ -270,8 +458,10 @@ function openPuestoEditor(id){
   document.getElementById('gp-modal-title').textContent = p ? 'Editar Puesto' : 'Nuevo Puesto';
   document.getElementById('gp-modal-kicker').textContent = p ? `✏️ ${p.id}` : '➕ Alta de puesto';
 
-  // datalist de áreas existentes
-  const areas = [...new Set(PUESTOS.map(x => x.area).filter(Boolean))].sort();
+  // datalist de áreas existentes (catálogo + padrón de empleados)
+  const empAreas = Object.values(_empAreaCanon());
+  const areas = [...new Map([...catalogAreas(), ...empAreas]
+    .map(a => [_normArea(a), a])).values()].sort((a,b) => a.localeCompare(b));
   document.getElementById('gp-area-list').innerHTML = areas.map(a => `<option value="${esc(a)}">`).join('');
 
   document.getElementById('gp-modal').classList.add('open');
@@ -645,13 +835,28 @@ function _injectGestionModals(){
 // ════════════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', () => {
   _injectGestionModals();
-  if(!loadPuestos()){
-    bootstrapPuestosFromData();  // primera vez: hidratar desde datos existentes
-    savePuestos();
-  } else {
-    // Merge no destructivo: incorpora puestos nuevos que hayan aparecido
-    bootstrapPuestosFromData();
-    savePuestos();
+
+  // 1. Estado persistido (si lo hay) + migración v1 → v2 con respaldo
+  if(loadPuestos() && _puestosNeedMigration){
+    _backupPuestosV1();
+    const st = migratePuestosCatalog();
+    _puestosNeedMigration = false;
+    if(st.puestosFusionados || st.areasRenombradas){
+      console.info('[gestión] catálogo migrado a v2:', st);
+      // Deliberadamente NO se reescribe ex.aplica aquí: lo consumen la
+      // exportación a Excel (columnas de ALL_EXAM_AREAS) y la matriz
+      // Exámenes × Puestos. _commitAssignments lo sigue sincronizando
+      // examen por examen, como antes. Así la migración solo escribe en
+      // la llave nmc-puestos y el respaldo es una vuelta atrás exacta.
+      try { showToast(`🔧 Catálogo de puestos reparado: ${st.puestosFusionados} puesto(s) fusionado(s)`); } catch(_){}
+    }
   }
+
+  // 2. Merge no destructivo: incorpora lo que falte de EXAMS/EMPLOYEES
+  bootstrapPuestosFromData();
+  savePuestos();
+
+  // 3. Los filtros del sistema ya pueden incluir el catálogo
+  try { buildAreaPuestoFilters(); } catch(_){}
   renderGestion();
 });

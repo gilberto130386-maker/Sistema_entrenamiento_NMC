@@ -263,15 +263,25 @@ function showView(name){
 // ════════════════════════════════════════════════════════
 // FILTERS SETUP
 // ════════════════════════════════════════════════════════
+// Repuebla los cuatro desplegables de área/puesto. Dos reglas:
+//  • La fuente es EMPLOYEES ∪ catálogo de gestión (PUESTOS), para que un
+//    área o puesto recién dado de alta aparezca aunque todavía no tenga
+//    empleados. Antes solo miraba EMPLOYEES y nunca se actualizaba.
+//  • Cada <select> se reconstruye desde cero. Antes solo hacía append, y
+//    como esta función se llama en cada alta / import / asignación, las
+//    opciones se iban duplicando en cada llamada.
 function buildAreaPuestoFilters(){
-  // ── Construir mapas desde EMPLOYEES (misma fuente para exámenes y empleados) ─
   window._areaToExPuestos  = {};
   window._puestoToExAreas  = {};
   window._areaToEmpPuestos = {};
   window._puestoToEmpAreas = {};
 
-  EMPLOYEES.forEach(e => {
-    const a = (e.area||'').trim(), p = (e.puesto||'').trim();
+  const pairs = EMPLOYEES.map(e => ({ area:(e.area||'').trim(), puesto:(e.puesto||'').trim() }));
+  try {
+    if(typeof catalogPuestoPairs === 'function') pairs.push(...catalogPuestoPairs());
+  } catch(_){}
+
+  pairs.forEach(({area:a, puesto:p}) => {
     if(!a || !p) return;
     // Exams share the same maps — área/puesto comes from employee records
     (_areaToExPuestos[a]  = _areaToExPuestos[a] ||new Set()).add(p);
@@ -280,31 +290,30 @@ function buildAreaPuestoFilters(){
     (_puestoToEmpAreas[p] = _puestoToEmpAreas[p]||new Set()).add(a);
   });
 
-  // Áreas y puestos únicos de empleados (orden alfabético)
-  const empAreas   = [...new Set(EMPLOYEES.map(e=>e.area  ).filter(Boolean))].sort();
-  const empPuestos = [...new Set(EMPLOYEES.map(e=>e.puesto).filter(Boolean))].sort();
+  // Áreas y puestos únicos (orden alfabético). Los guardamos en window para
+  // que las cascadas usen exactamente la misma lista al deseleccionar.
+  window._allAreasUI   = [...new Set(pairs.map(x=>x.area  ).filter(Boolean))].sort();
+  window._allPuestosUI = [...new Set(pairs.map(x=>x.puesto).filter(Boolean))].sort();
 
-  // ── ex-area y ex-puesto: misma fuente que emp-area / emp-puesto ───────────
-  const ea = document.getElementById('ex-area');
-  empAreas.forEach(a => {
-    const o=document.createElement('option'); o.value=a; o.textContent=a; ea.appendChild(o);
-  });
+  fillFilterSelect('ex-area',    'Todas las áreas',   _allAreasUI);
+  fillFilterSelect('ex-puesto',  'Todos los puestos', _allPuestosUI);
+  fillFilterSelect('emp-area',   'Todas las áreas',   _allAreasUI);
+  fillFilterSelect('emp-puesto', 'Todos los puestos', _allPuestosUI);
+}
 
-  const ep = document.getElementById('ex-puesto');
-  empPuestos.forEach(p => {
-    const o=document.createElement('option'); o.value=p; o.textContent=p; ep.appendChild(o);
+// Reconstruye un <select> de filtro conservando la selección activa.
+function fillFilterSelect(id, placeholder, values){
+  const sel = document.getElementById(id);
+  if(!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '';
+  const ph = document.createElement('option');
+  ph.value = ''; ph.textContent = placeholder;
+  sel.appendChild(ph);
+  values.forEach(v => {
+    const o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o);
   });
-
-  // ── emp-area y emp-puesto ─────────────────────────────────────────────────
-  const ea2 = document.getElementById('emp-area');
-  empAreas.forEach(a => {
-    const o=document.createElement('option'); o.value=a; o.textContent=a; ea2.appendChild(o);
-  });
-
-  const ep2 = document.getElementById('emp-puesto');
-  empPuestos.forEach(p => {
-    const o=document.createElement('option'); o.value=p; o.textContent=p; ep2.appendChild(o);
-  });
+  sel.value = values.includes(prev) ? prev : '';
 }
 
 // ── CASCADE: area changed → restrict puesto dropdown ─────────────────────
@@ -316,7 +325,7 @@ function onExAreaChange(){
   ep.innerHTML = '<option value="">Todos los puestos</option>';
   const puestos = area
     ? [...(_areaToExPuestos[area]||[])].sort()
-    : [...new Set(EMPLOYEES.map(e=>e.puesto).filter(Boolean))].sort();
+    : (window._allPuestosUI || []);
 
   puestos.forEach(p => {
     const o=document.createElement('option');
@@ -340,7 +349,7 @@ function onExPuestoChange(){
   ea.innerHTML = '<option value="">Todas las áreas</option>';
   const areas = puesto
     ? [...(_puestoToExAreas[puesto]||[])].sort()
-    : [...new Set(EMPLOYEES.map(e=>e.area).filter(Boolean))].sort();
+    : (window._allAreasUI || []);
 
   areas.forEach(a => {
     const o=document.createElement('option');
@@ -2098,7 +2107,7 @@ function onEmpAreaChange(){
   ep.innerHTML = '<option value="">Todos los puestos</option>';
   const puestos = area
     ? [...(_areaToEmpPuestos[area]||[])].sort()
-    : [...new Set(EMPLOYEES.map(e=>e.puesto).filter(p=>p))].sort();
+    : (window._allPuestosUI || []);
 
   puestos.forEach(p => {
     const o=document.createElement('option');
@@ -2121,7 +2130,7 @@ function onEmpPuestoChange(){
   ea.innerHTML = '<option value="">Todas las áreas</option>';
   const areas = puesto
     ? [...(_puestoToEmpAreas[puesto]||[])].sort()
-    : [...new Set(EMPLOYEES.map(e=>e.area).filter(a=>a))].sort();
+    : (window._allAreasUI || []);
 
   areas.forEach(a => {
     const o=document.createElement('option');
@@ -3044,9 +3053,11 @@ function renderMatrix(){
   const q=document.getElementById('mtx-q').value.toLowerCase();
   const examsF=EXAMS.filter(ex=>!q||ex.tema.toLowerCase().includes(q)||ex.id.toLowerCase().includes(q));
 
-  // Usar ALL_AREAS (Lista2_Empleados) — misma fuente que filtros
+  // Misma fuente que los filtros: ALL_AREAS (Lista2_Empleados) unida con
+  // las áreas reales del padrón, para no dejar fuera las áreas nuevas.
   // Mostrar solo áreas que tienen al menos un examen asignado
-  const areasConExamen=ALL_AREAS.filter(a=>EXAMS.some(ex=>getExamEmps(ex).some(e=>e.area===a)));
+  const areasBase=[...new Set([...(ALL_AREAS||[]), ...EMPLOYEES.map(e=>e.area).filter(Boolean)])];
+  const areasConExamen=areasBase.filter(a=>EXAMS.some(ex=>getExamEmps(ex).some(e=>e.area===a)));
 
   document.getElementById('matrix-container').innerHTML=`
     <div class="matrix-wrap">
