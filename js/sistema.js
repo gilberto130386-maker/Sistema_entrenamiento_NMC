@@ -3755,8 +3755,13 @@ function _restoreKpiOrder(){
   const layout = _dashLayoutCache;
   if(!layout?.kpiOrder?.length) return;
   const grid = document.getElementById('dash-kpis');
+  const current = [...grid.children].map(el => el.dataset.kpi);
+  // Tarjetas ausentes del orden guardado (p.ej. un KPI oculto al guardar y
+  // luego restaurado con "Mostrar todos") van al final, no al frente —
+  // conservan su orden natural entre sí en vez de saltar a la posición 0.
+  const order = [...layout.kpiOrder, ...current.filter(k => !layout.kpiOrder.includes(k))];
   // appendChild on existing nodes just moves them — no clone needed
-  layout.kpiOrder.forEach(key => {
+  order.forEach(key => {
     const el = grid.querySelector(`[data-kpi="${key}"]`);
     if(el) grid.appendChild(el);
   });
