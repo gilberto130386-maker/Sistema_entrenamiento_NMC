@@ -1589,14 +1589,15 @@ function renderDashboard(){
     .replace(/<div class="kpi-lbl">/,
     `<button class="kpi-hide-btn" onclick="hideKpi('${key}')" title="Ocultar este KPI">✕</button><div class="kpi-lbl">`);
 
+  // wrap() ya marca cada tarjeta con su data-kpi real (línea de arriba) — no
+  // reasignar por posición aquí: con algún KPI oculto, un arreglo fijo de
+  // claves desalinea las tarjetas restantes y corrompe el orden guardado
+  // (saveDashboardLayout/_restoreKpiOrder leen justo este atributo).
   document.getElementById('dash-kpis').innerHTML=
     kpiDefs.filter(d=>!_hiddenKpis.has(d.key))
             .map(d=>wrap(d.key, _kpiRender(d.key,d.label,d.val,d.sub,d.cls)))
             .join('');
 
-  // Assign stable data-kpi identifiers so order can be saved/restored
-  const _kpiKeys = ['empleados','aprobados','pendientes','enproceso','cumplimiento'];
-  [...document.getElementById('dash-kpis').children].forEach((el,i) => { el.dataset.kpi = _kpiKeys[i]; });
   _restoreKpiOrder();
 
   // Update restore bar
