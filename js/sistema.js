@@ -3038,7 +3038,8 @@ function _saveEmpOverride(e){
     cert_examen: e.cert_examen,
     puesto:      e.puesto,
     area:        e.area,
-    exam_ids:    e.exam_ids,
+    // exam_ids ya no se guarda aquí: es derivado del catálogo puesto→examen
+    // (ver loadEmployeeData / _syncAllEmpExamIdsFromCatalog en gestion.js).
   };
   try { localStorage.setItem('nmc-employee-data', JSON.stringify(saved)); } catch{}
 }
@@ -3975,8 +3976,12 @@ function loadEmployeeData(){
         const e = _empByKey(key);
         if(!e) return;
         const ov = ovMap[key];
+        // exam_ids NO se restaura desde el override: es derivado del
+        // catálogo (puesto→exámenes) y se resincroniza aparte, para que
+        // un puesto nuevo o una asignación posterior no quede pisada por
+        // la foto fija que se guardó la última vez que se editó al empleado.
         ['nombre','email','numero','supervisor','ingreso','horario',
-         'cert_cofc','cert_examen','puesto','area','exam_ids'].forEach(f => {
+         'cert_cofc','cert_examen','puesto','area'].forEach(f => {
           if(ov[f] !== undefined) e[f] = ov[f];
         });
       });

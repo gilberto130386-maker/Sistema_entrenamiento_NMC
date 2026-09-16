@@ -716,6 +716,29 @@ function _applyAssignmentToEmployees(puestoId, examId, on){
   });
 }
 
+// Resincroniza exam_ids de TODOS los empleados contra el catálogo
+// (PUESTOS + ASSIGNMENTS), que es la fuente de verdad. Necesario porque
+// exam_ids vive como copia en cada empleado (para no recalcular en cada
+// render) y puede quedar desactualizada si: (a) el override individual
+// guardado al editar un empleado trae una foto vieja, o (b) se crea un
+// puesto o se le asignan exámenes después de que el empleado ya existía.
+// Solo toca puestos que SÍ están en el catálogo — un puesto legado que
+// aún no se dio de alta ahí conserva su exam_ids previo (fallback en
+// _getExamIdsForPuesto). Devuelve true si corrigió algo.
+function _syncAllEmpExamIdsFromCatalog(){
+  if(typeof EMPLOYEES === 'undefined' || typeof examIdsForPuestoNameArea !== 'function') return false;
+  let changed = false;
+  EMPLOYEES.forEach(e => {
+    const ids = examIdsForPuestoNameArea(e.puesto, e.area);
+    if(ids === null) return;
+    const next = [...new Set(ids)];
+    const cur  = [...new Set(e.exam_ids||[])];
+    const same = cur.length === next.length && cur.slice().sort().join('') === next.slice().sort().join('');
+    if(!same){ e.exam_ids = next; changed = true; }
+  });
+  return changed;
+}
+
 // ── Commit: sincroniza ex.aplica, reconstruye índices, persiste y refresca
 function _commitAssignments(examIds){
   [...new Set(examIds)].forEach(_syncExamAplica);
@@ -728,6 +751,13 @@ function _commitAssignments(examIds){
   try { if(typeof filtExams !== 'undefined') filtExams = [...EXAMS]; filterExams(); } catch(_){}
   try { renderEmps(); } catch(_){}
   try { renderMatrix(); } catch(_){}
+  // Si el modal de detalle de un empleado está abierto, refrescarlo:
+  // openEmpModal ya lee exam_ids en vivo, solo falta volver a llamarla.
+  try {
+    if(window._empModalId && document.getElementById('emp-modal')?.classList.contains('open')){
+      openEmpModal(window._empModalId);
+    }
+  } catch(_){}
 }
 
 // Toggle de una casilla (un puesto × un examen)
@@ -855,6 +885,20 @@ window.addEventListener('DOMContentLoaded', () => {
   // 2. Merge no destructivo: incorpora lo que falte de EXAMS/EMPLOYEES
   bootstrapPuestosFromData();
   savePuestos();
+
+  // 2.5 El catálogo recién cargado es la fuente de verdad: resincroniza
+  // exam_ids de cada empleado contra él. Corrige tanto overrides
+  // individuales desactualizados como puestos/exámenes dados de alta
+  // después de que el empleado ya existía — el render inicial de
+  // sistema.js corrió antes de que este catálogo estuviera disponible.
+  if(_syncAllEmpExamIdsFromCatalog()){
+    try { _rebuildIndexes(); } catch(_){}
+    try { if(typeof saveDataset === 'function') saveDataset(); } catch(_){}
+    try { if(typeof _saveExtraEmployees === 'function') _saveExtraEmployees(); } catch(_){}
+    try { refreshAllKPIs(); } catch(_){}
+    try { renderEmps(); } catch(_){}
+    try { renderMatrix(); } catch(_){}
+  }
 
   // 3. Los filtros del sistema ya pueden incluir el catálogo
   try { buildAreaPuestoFilters(); } catch(_){}
