@@ -1006,6 +1006,7 @@ const CHART_TYPES = {
     empleados:   { current:'number', options:['number','donut','bar'] },
     aprobados:   { current:'number', options:['number','donut','pie'] },
     pendientes:  { current:'number', options:['number','donut','bar'] },
+    enproceso:   { current:'number', options:['number','donut','bar'] },
     cumplimiento:{ current:'number', options:['number','donut','progress'] }
   },
   panel: {
@@ -1043,7 +1044,7 @@ const COMBO_LINES = {
   ]
 };
 
-const KPI_LABELS   = { empleados:'Empleados', aprobados:'Aprobados', pendientes:'Pendientes', cumplimiento:'Cumplimiento' };
+const KPI_LABELS   = { empleados:'Empleados', aprobados:'Aprobados', pendientes:'Pendientes', enproceso:'En Proceso', cumplimiento:'Cumplimiento' };
 const PANEL_LABELS = { area:'Empleados por Área', cov:'Cobertura de Exámenes', status:'Aprobados vs Pendientes' };
 const TYPE_ICONS   = { number:'🔢', bar:'▬', pie:'◑', donut:'◎', progress:'▭', stacked:'⊟', combo:'📊' };
 
@@ -1499,7 +1500,7 @@ function _kpiRender(key, label, val, sub, cls){
 // ════════════════════════════════════════════════════════════════
 // KPI VISIBILITY — hide/show individual cards
 // ════════════════════════════════════════════════════════════════
-let _hiddenKpis = new Set(); // set of kpi keys: 'empleados'|'aprobados'|'pendientes'|'cumplimiento'
+let _hiddenKpis = new Set(); // set of kpi keys: 'empleados'|'aprobados'|'pendientes'|'enproceso'|'cumplimiento'
 
 function _loadHiddenKpis(){
   try{
@@ -1536,7 +1537,7 @@ function _updateRestoreBar(){
   if(!bar || !chips) return;
   if(!_hiddenKpis.size){ bar.style.display='none'; return; }
   bar.style.display='flex';
-  const labels = {empleados:'Empleados',aprobados:'Aprobados',pendientes:'Pendientes',cumplimiento:'Cumplimiento'};
+  const labels = {empleados:'Empleados',aprobados:'Aprobados',pendientes:'Pendientes',enproceso:'En Proceso',cumplimiento:'Cumplimiento'};
   chips.innerHTML = [..._hiddenKpis].map(k =>
     `<button class="kpi-restore-chip" onclick="restoreKpi('${k}')">
       + ${labels[k]||k}
@@ -1567,6 +1568,7 @@ function renderDashboard(){
   const tot=EMPLOYEES.length;
   const apr=EMPLOYEES.filter(e=>e.estatus==='Aprobado').length;
   const pend=EMPLOYEES.filter(e=>e.estatus==='Pendiente').length;
+  const proc=EMPLOYEES.filter(e=>e.estatus==='En Proceso').length;
   // Sin empleados cargados, apr/tot es NaN y "NaN%" se filtraba hasta las
   // tarjetas KPI y los anchos de barra — se ancla en 0.
   const pct=(tot ? apr/tot*100 : 0).toFixed(1);
@@ -1577,6 +1579,7 @@ function renderDashboard(){
     {key:'empleados',   label:'Empleados',   val:tot,      sub:'',       cls:'o'},
     {key:'aprobados',   label:'Aprobados',   val:apr,      sub:pct+'%',  cls:'g'},
     {key:'pendientes',  label:'Pendientes',  val:pend,     sub:'',       cls:'y'},
+    {key:'enproceso',   label:'En Proceso',  val:proc,     sub:'',       cls:'o'},
     {key:'cumplimiento',label:'Cumplimiento',val:pct+'%',  sub:'global', cls:parseFloat(pct)>=50?'g':'r'},
   ];
 
@@ -1586,14 +1589,15 @@ function renderDashboard(){
     .replace(/<div class="kpi-lbl">/,
     `<button class="kpi-hide-btn" onclick="hideKpi('${key}')" title="Ocultar este KPI">✕</button><div class="kpi-lbl">`);
 
+  // wrap() ya marca cada tarjeta con su data-kpi real (línea de arriba) — no
+  // reasignar por posición aquí: con algún KPI oculto, un arreglo fijo de
+  // claves desalinea las tarjetas restantes y corrompe el orden guardado
+  // (saveDashboardLayout/_restoreKpiOrder leen justo este atributo).
   document.getElementById('dash-kpis').innerHTML=
     kpiDefs.filter(d=>!_hiddenKpis.has(d.key))
             .map(d=>wrap(d.key, _kpiRender(d.key,d.label,d.val,d.sub,d.cls)))
             .join('');
 
-  // Assign stable data-kpi identifiers so order can be saved/restored
-  const _kpiKeys = ['empleados','aprobados','pendientes','cumplimiento'];
-  [...document.getElementById('dash-kpis').children].forEach((el,i) => { el.dataset.kpi = _kpiKeys[i]; });
   _restoreKpiOrder();
 
   // Update restore bar
@@ -3751,8 +3755,13 @@ function _restoreKpiOrder(){
   const layout = _dashLayoutCache;
   if(!layout?.kpiOrder?.length) return;
   const grid = document.getElementById('dash-kpis');
+  const current = [...grid.children].map(el => el.dataset.kpi);
+  // Tarjetas ausentes del orden guardado (p.ej. un KPI oculto al guardar y
+  // luego restaurado con "Mostrar todos") van al final, no al frente —
+  // conservan su orden natural entre sí en vez de saltar a la posición 0.
+  const order = [...layout.kpiOrder, ...current.filter(k => !layout.kpiOrder.includes(k))];
   // appendChild on existing nodes just moves them — no clone needed
-  layout.kpiOrder.forEach(key => {
+  order.forEach(key => {
     const el = grid.querySelector(`[data-kpi="${key}"]`);
     if(el) grid.appendChild(el);
   });
