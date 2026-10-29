@@ -32,6 +32,7 @@
     <button class="nav-btn" id="nav-analizador" onclick="showView('analizador')">🔎 Analizador</button>
     <button class="nav-btn" id="nav-skillmatrix" onclick="showView('skillmatrix')">🧩 Skill Matrix</button>
     <button class="nav-btn" id="nav-gestion" onclick="showView('gestion')">🗂️ Gestión</button>
+    <button class="nav-btn" id="nav-respaldo" onclick="showView('respaldo')">💾 Respaldo</button>
   </nav>
   <button id="btn-nav-arrange" title="Reordenar navegación"
     onclick="toggleNavArrange()"
@@ -386,6 +387,15 @@
   <div id="gestion-root"></div>
 </div>
 <!-- /view-gestion -->
+
+<!-- ══════ RESPALDO VIEW (descarga/restauración de .json) ══════ -->
+<div class="view" id="view-respaldo">
+  <div class="sh">
+    <h2 class="sh-title">Respaldo de <span>Datos</span></h2>
+  </div>
+  <div id="respaldo-root"></div>
+</div>
+<!-- /view-respaldo -->
 
 </div><!-- /main -->
 
@@ -966,6 +976,9 @@
 
 <!-- ══ Analizador de Formularios — JavaScript ══ -->
 <script src="js/analizador.js"></script>
+
+<!-- ══ Respaldo — descarga .json al abrir, descarga manual y restauración ══ -->
+<script src="js/respaldo.js"></script>
 
 <!-- ═══ MODAL: RESTABLECER ESTATUS ═══════════════════════════════ -->
 <div id="reset-status-overlay"

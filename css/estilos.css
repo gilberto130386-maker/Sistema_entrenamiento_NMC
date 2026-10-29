@@ -480,3 +480,12 @@ tbody tr{transition:background .12s}
 #view-skillmatrix .sm-cell-pendiente{background:#fff9c4!important;color:#f57f17;font-weight:700}
 #view-skillmatrix .sm-summary-row td{background:var(--bg3)!important;font-weight:700;border-top:2px solid var(--accent)}
 #view-skillmatrix .sm-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin-bottom:1rem}
+
+/* ── Sección Respaldo ── */
+.rs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
+.rs-card{background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:1.1rem 1.3rem;box-shadow:0 1px 4px rgba(27,79,138,.08)}
+.rs-card h3{font-family:var(--fh);font-size:.95rem;font-weight:700;margin-bottom:.4rem}
+.rs-card p{font-size:.8rem;color:var(--text2);line-height:1.45;margin-bottom:.85rem}
+.rs-meta{font-size:.72rem;color:var(--text3);margin-top:.75rem}
+.rs-switch{display:flex;align-items:center;gap:.5rem;font-size:.82rem;font-weight:600;cursor:pointer}
+.rs-note{font-size:.72rem;color:var(--text3);line-height:1.5;margin-top:1rem}
