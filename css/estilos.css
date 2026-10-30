@@ -1,5 +1,6 @@
 :root{
   --nav-alto:clamp(60px,8vh,100px);
+  --side-w:196px;
   --ft:'Inter',sans-serif;
   --th-bg:var(--bg3);
   --th-color:var(--text3);
@@ -48,17 +49,29 @@ header{background:linear-gradient(135deg,#1b4f8a,#1565c0);border-bottom:1px soli
 #hdr-logo{height:var(--logo-h,56px)}
 .logo-text{font-family:var(--fh);font-weight:800;font-size:1.5rem;color:#fff}
 .logo-sub{font-size:.9rem;color:rgba(255,255,255,.65);letter-spacing:.1em;text-transform:uppercase}
-.nav{display:flex;gap:.2rem;margin-left:auto}
-.nav-btn{padding:.38rem .85rem;border-radius:6px;border:none;background:transparent;color:rgba(255,255,255,.85);font-family:var(--fb);font-size:1.23rem;font-weight:500;cursor:pointer;transition:all .2s}
-.nav-btn:hover{color:#fff;background:rgba(255,255,255,.15)}
-.nav-btn.active{color:#fff;background:rgba(255,255,255,.22);font-weight:700}
+/* MENÚ LATERAL — íconos de trazo fino; "Contraer" lo deja solo con íconos */
+.sidenav{position:fixed;top:var(--nav-alto);left:0;bottom:0;width:var(--side-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;justify-content:space-between;padding:.7rem .55rem;z-index:90;overflow:hidden auto;transition:width .2s ease}
+.sn-items,.sn-foot{display:flex;flex-direction:column;gap:.15rem}
+.sn-foot{border-top:1px solid var(--border);padding-top:.55rem}
+.nav-btn,.sn-tool{position:relative;display:flex;align-items:center;gap:.75rem;width:100%;padding:.6rem .7rem;border-radius:8px;border:none;background:transparent;color:var(--text2);font-family:var(--fb);font-size:.86rem;font-weight:500;text-align:left;white-space:nowrap;cursor:pointer;transition:background .15s,color .15s}
+.nav-btn:hover,.sn-tool:hover{background:var(--bg2);color:var(--accent)}
+.nav-btn.active{background:var(--ag);color:var(--accent);font-weight:600}
+.nav-btn.active::before{content:'';position:absolute;left:-.55rem;top:22%;bottom:22%;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.sn-tool{color:var(--text3);font-size:.78rem}
+.sn-tool.on{background:var(--ag);color:var(--accent)}
+.ni{width:20px;height:20px;flex-shrink:0}
+.nl{overflow:hidden;text-overflow:ellipsis}
+body.side-collapsed{--side-w:60px}
+body.side-collapsed .nl{display:none}
+body.side-collapsed .nav-btn,body.side-collapsed .sn-tool{justify-content:center;padding:.65rem 0}
+body.side-collapsed #btn-nav-collapse .ni{transform:rotate(180deg)}
 .hdr-btns{display:flex;gap:.4rem;margin-left:1rem}
 .hdr-btn{padding:.38rem .9rem;border-radius:6px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:rgba(255,255,255,.9);font-family:var(--fb);font-size:.75rem;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:.35rem}
 .hdr-btn:hover{border-color:rgba(255,255,255,.7);background:rgba(255,255,255,.22);color:#fff}
 .hdr-btn.primary{border-color:#fff;background:rgba(255,255,255,.2);color:#fff}
 
 /* MAIN */
-.main{max-width:1500px;margin:0 auto;padding:1.5rem}
+.main{max-width:calc(1500px + var(--side-w));margin:0 auto 0 0;padding:1.5rem 1.5rem 1.5rem calc(var(--side-w) + 1.5rem);transition:padding-left .2s ease}
 .view{display:none;animation:fadeIn .3s ease}
 .view.active{display:block}
 @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
@@ -205,7 +218,11 @@ tbody tr:last-child td{border-bottom:none}
   .kpis{grid-template-columns:repeat(2,1fr)}
   .srch{width:100%}
   .ctrls{flex-direction:column}
-  .nav{display:none}
+  :root{--side-w:56px}
+  .sidenav .nl{display:none}
+  .nav-btn,.sn-tool{justify-content:center;padding:.65rem 0}
+  #btn-nav-collapse{display:none}
+  .main{padding:1rem 1rem 1rem calc(var(--side-w) + 1rem)}
   th:nth-child(n+5),td:nth-child(n+5){display:none}
 }
 
@@ -221,7 +238,7 @@ tbody tr:last-child td{border-bottom:none}
 
 /* NAV DRAG */
 .nav-btn.nav-dragging{opacity:.4;cursor:grabbing!important}
-.nav-btn.nav-drag-over{transform:scale(1.08);box-shadow:0 0 0 2px var(--accent)}
+.nav-btn.nav-drag-over{box-shadow:0 0 0 2px var(--accent)}
 .nav-btn[draggable="true"]{cursor:grab}
 
 /* Product Sans (Outfit) — IDs, KPI numbers, card figures */

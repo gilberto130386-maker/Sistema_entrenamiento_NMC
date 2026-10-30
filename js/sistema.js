@@ -786,9 +786,7 @@ function toggleNavArrange(){
   const btns = [...nav.querySelectorAll('.nav-btn')];
 
   if(window._navArrangeMode){
-    btn.style.borderColor = 'var(--accent)';
-    btn.style.color = 'var(--accent)';
-    btn.style.background = 'var(--ag)';
+    btn.classList.add('on');
     btn.title = 'Listo';
     showToast('↔ Arrastra las pestañas para reordenarlas');
     btns.forEach(b => {
@@ -801,9 +799,7 @@ function toggleNavArrange(){
       b.addEventListener('dragleave',  _navDragLeave);
     });
   } else {
-    btn.style.borderColor = 'var(--border2)';
-    btn.style.color = 'var(--text3)';
-    btn.style.background = 'transparent';
+    btn.classList.remove('on');
     btn.title = 'Reordenar navegación';
     btns.forEach(b => {
       b.removeAttribute('draggable');
@@ -834,36 +830,45 @@ function _navDragLeave(){
 function _navDragOver(e){
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-  // Visual left/right hint
+  // Visual top/bottom hint (el menú ahora es vertical)
   const rect = this.getBoundingClientRect();
-  const mid  = rect.left + rect.width / 2;
-  this.style.borderLeft  = e.clientX < mid ? '2px solid var(--accent)' : '';
-  this.style.borderRight = e.clientX >= mid ? '2px solid var(--accent)' : '';
+  const mid  = rect.top + rect.height / 2;
+  this.style.borderTop    = e.clientY < mid ? '2px solid var(--accent)' : '';
+  this.style.borderBottom = e.clientY >= mid ? '2px solid var(--accent)' : '';
 }
 function _navDrop(e){
   e.preventDefault();
   if(_navDragSrc === this) return;
-  const nav   = document.getElementById('main-nav');
-  const btns  = [...nav.querySelectorAll('.nav-btn')];
-  const srcI  = btns.indexOf(_navDragSrc);
-  const tgtI  = btns.indexOf(this);
+  const list  = this.parentNode;  // contenedor .sn-items
   const rect  = this.getBoundingClientRect();
-  const mid   = rect.left + rect.width / 2;
-  if(e.clientX < mid) nav.insertBefore(_navDragSrc, this);
-  else                nav.insertBefore(_navDragSrc, this.nextSibling);
+  const mid   = rect.top + rect.height / 2;
+  if(e.clientY < mid) list.insertBefore(_navDragSrc, this);
+  else                list.insertBefore(_navDragSrc, this.nextSibling);
   this.classList.remove('nav-drag-over');
-  this.style.borderLeft = '';
-  this.style.borderRight = '';
+  this.style.borderTop = '';
+  this.style.borderBottom = '';
 }
 function _navDragEnd(){
   this.classList.remove('nav-dragging');
   document.querySelectorAll('#main-nav .nav-btn').forEach(b=>{
     b.classList.remove('nav-drag-over');
-    b.style.borderLeft = '';
-    b.style.borderRight = '';
+    b.style.borderTop = '';
+    b.style.borderBottom = '';
     b.style.transform = '';
   });
 }
+
+// ── MENÚ LATERAL: contraer / expandir (se recuerda en este navegador) ──
+function toggleSidenav(force){
+  const collapsed = typeof force === 'boolean'
+    ? force : !document.body.classList.contains('side-collapsed');
+  document.body.classList.toggle('side-collapsed', collapsed);
+  try { localStorage.setItem('nmc-sidenav-collapsed', collapsed ? '1' : '0'); } catch(e){}
+}
+try {
+  if(localStorage.getItem('nmc-sidenav-collapsed') === '1')
+    document.body.classList.add('side-collapsed');
+} catch(e){}
 
 function toggleArrange(){
   window._arrangeMode = !window._arrangeMode;
