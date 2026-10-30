@@ -473,9 +473,16 @@ function gDeletePuesto(id){
   const nEmp = (typeof EMPLOYEES !== 'undefined' ? EMPLOYEES : [])
     .filter(e => _puestoKey(e.area, e.puesto) === _puestoKey(p.area, p.nombre)).length;
   const nExam = _examIdsForPuestoId(id).length;
+  const subs = PUESTOS.filter(x => x.reportaA === id && x.id !== id);
   let msg = `¿Eliminar el puesto "${p.nombre}" (${p.area})?\n\nSe quitarán sus ${nExam} asignación(es) de examen.`;
   if(nEmp > 0) msg += `\n\n⚠️ ${nEmp} empleado(s) tienen este puesto; no se eliminan, pero quedarán sin puesto de catálogo.`;
+  if(subs.length) msg += `\n\n🏢 Sus ${subs.length} subordinado(s) directo(s) en el organigrama pasarán a reportar a su jefe (o quedarán como raíz).`;
   if(!confirm(msg)) return;
+  // Organigrama: los subordinados suben un nivel en lugar de quedar colgados
+  subs.forEach(x => {
+    if(p.reportaA && p.reportaA !== id){ x.reportaA = p.reportaA; }
+    else { delete x.reportaA; x.orgRaiz = true; }
+  });
   PUESTOS = PUESTOS.filter(x => x.id !== id);
   ASSIGNMENTS = ASSIGNMENTS.filter(a => a.puestoId !== id);
   savePuestos();
@@ -504,9 +511,11 @@ function renderGestion(){
   let action = '';
   if(tab==='exams')   action = `<button class="btn btn-p btn-sm" onclick="openExamEditor()">➕ Nuevo examen</button>`;
   if(tab==='puestos') action = `<button class="btn btn-p btn-sm" onclick="openPuestoEditor()">➕ Nuevo puesto</button>`;
+  if(tab==='organigrama') action = `<button class="btn btn-p btn-sm" onclick="orgOpenEditor()">➕ Nuevo puesto</button>`;
 
-  // La búsqueda aplica a exámenes y puestos; en asignaciones se usa el selector.
-  const showSearch = tab !== 'asignaciones';
+  // La búsqueda aplica a exámenes y puestos; asignaciones y organigrama
+  // traen su propio selector/buscador.
+  const showSearch = tab === 'exams' || tab === 'puestos';
 
   root.innerHTML = `
     <div class="sh">
@@ -522,6 +531,7 @@ function renderGestion(){
       ${tabBtn('exams',        `🔗 Links de Exámenes (${EXAMS.length})`)}
       ${tabBtn('puestos',      `🧷 Puestos (${PUESTOS.length})`)}
       ${tabBtn('asignaciones', `🔀 Asignaciones (${ASSIGNMENTS.length})`)}
+      ${tabBtn('organigrama',  `🏢 Organigrama`)}
     </div>
 
     <div id="g-body"></div>
@@ -530,6 +540,7 @@ function renderGestion(){
   const body = document.getElementById('g-body');
   if(tab==='exams')        body.innerHTML = _renderExamsTable(q);
   else if(tab==='puestos') body.innerHTML = _renderPuestosGrid(q);
+  else if(tab==='organigrama') renderOrganigrama(body);   // organigrama.js
   else { body.innerHTML = _renderAsignaciones(); _renderAsgBody(); }
 }
 
