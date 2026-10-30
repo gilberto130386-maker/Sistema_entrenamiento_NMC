@@ -534,3 +534,4 @@ tbody tr{transition:background .12s}
 .org-emps span{background:var(--card);border:1px solid var(--border);border-radius:99px;padding:.1rem .5rem;font-size:.66rem}
 .org-grid2{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
 @media (max-width:560px){.org-grid2{grid-template-columns:1fr}}
+.org-sup{margin-top:.55rem;padding-top:.5rem;border-top:1px dashed var(--border2);font-size:.72rem;line-height:1.5}

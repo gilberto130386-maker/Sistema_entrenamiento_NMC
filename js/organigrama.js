@@ -5,14 +5,18 @@
 // nombre de la(s) persona(s) que los ocupan. La jerarquía vive en el
 // propio puesto, así que se persiste en localStorage['nmc-puestos'] vía
 // savePuestos() y entra al Respaldo sin trabajo extra. Campos opcionales:
-//   reportaA   — id del puesto superior (null/ausente = no reporta)
-//   orgRaiz    — true: es raíz de un organigrama aunque no tenga hijos
+//   reportaA   — id del puesto superior capturado A MANO (gana sobre el
+//                automático)
+//   orgRaiz    — true: es raíz de un organigrama (no reporta a nadie)
+//   orgSuelto  — true: sacado del organigrama a mano (sin jefe automático)
 //   nivel      — clave de ORG_NIVELES (color del nodo)
 //   titular    — nombre capturado a mano; si falta se toma del padrón
 //   plazas, turno, descripcion, responsabilidades, requisitos
 //
 // Dos vistas: 🏭 Planta (todos los puestos) y 🧩 Por área (solo los de
 // un área; si el jefe está en otra área se indica arriba del nodo).
+// Sin captura manual, "Reporta a" se toma AUTOMÁTICAMENTE del supervisor
+// que el padrón asigna al personal del puesto (ver _orgGraph).
 // Un puesto sin jefe, sin subordinados y sin orgRaiz queda "sin ubicar"
 // en la bandeja inferior, desde donde se arrastra al organigrama.
 // ════════════════════════════════════════════════════════════════
@@ -69,10 +73,128 @@ function _orgIniciales(s){
   return ((w[0]||'?')[0] + (w[1] ? w[1][0] : '')).toUpperCase();
 }
 function _orgById(){ return new Map(PUESTOS.map(p => [p.id, p])); }
-// Jefe válido (existe y no es el mismo puesto); un id colgante cuenta como ninguno.
-function _orgParentId(p, byId){
-  return p.reportaA && p.reportaA !== p.id && byId.has(p.reportaA) ? p.reportaA : null;
+
+// ── "Reporta a" automático desde el supervisor del padrón ─────────
+// El padrón guarda al empleado como "APELLIDOS, NOMBRES" y al supervisor
+// como "NOMBRE APELLIDO" ("CAMPILLO MORALES, EMMANUEL" ↔ "EMMANUEL
+// CAMPILLO"), así que se comparan por palabras, sin acentos. El jefe de
+// un puesto es el puesto del supervisor que más personas del puesto
+// tienen asignado. Un "Reporta a" capturado a mano siempre gana.
+function _orgToks(s){
+  return String(s||'').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .split(/[^A-Z]+/).filter(Boolean);
 }
+// Puntaje de coincidencia supervisor ↔ nombre (0 = no coincide). Cada
+// palabra del supervisor debe estar en el nombre (una inicial basta con
+// la primera letra). Con formato "APELLIDOS, NOMBRES" exige al menos un
+// apellido y un nombre, y desempata por primer apellido / primer nombre
+// ("ANGEL HERNANDEZ" → HERNANDEZ ALTAMIRANO, ANGEL y no ENRIQUEZ
+// HERNANDEZ, MIGUEL ANGEL).
+function _orgNameScore(sup, nombre){
+  const st = _orgToks(sup);
+  if(!st.length) return 0;
+  const n = String(nombre||'');
+  const ci = n.indexOf(',');
+  const ap = ci >= 0 ? _orgToks(n.slice(0, ci)) : null;
+  const no = ci >= 0 ? _orgToks(n.slice(ci + 1)) : _orgToks(n);
+  const full = (ap || []).concat(no);
+  for(const t of st){
+    if(t.length === 1 ? !full.some(x => x[0] === t) : !full.includes(t)) return 0;
+  }
+  const big = st.filter(t => t.length > 1);
+  let score = big.length;
+  if(ap){
+    if(!big.some(t => ap.includes(t)) || !big.some(t => no.includes(t))) return 0;
+    if(big.includes(ap[0])) score += 2;
+    if(big.includes(no[0])) score += 2;
+  }
+  return score;
+}
+// Supervisor → puesto del catálogo. Primero un titular capturado a mano
+// (sirve para jefes que no están en el padrón); luego el padrón. Si dos
+// personas empatan, no se adivina.
+function _orgResolveSupervisor(sup, cache){
+  const key = _orgToks(sup).join(' ');
+  if(!key) return { puesto:null, motivo:'vacío' };
+  if(cache.has(key)) return cache.get(key);
+  const best = (cands) => {
+    let top = 0, hits = [];
+    cands.forEach(([obj, nombre]) => {
+      const s = _orgNameScore(sup, nombre);
+      if(s > top){ top = s; hits = [obj]; } else if(s && s === top) hits.push(obj);
+    });
+    return hits;
+  };
+  let r;
+  const tit = best(PUESTOS.filter(p => String(p.titular||'').trim() && !p.orgSuelto).map(p => [p, p.titular]));
+  if(tit.length === 1) r = { puesto:tit[0], motivo:'titular' };
+  else {
+    const emps = best((typeof EMPLOYEES !== 'undefined' ? EMPLOYEES : []).map(e => [e, e.nombre]));
+    if(emps.length > 1)       r = { puesto:null, motivo:'ambiguo', personas:emps.map(e => e.nombre) };
+    else if(!emps.length)     r = { puesto:null, motivo:'no está en el padrón' };
+    else {
+      const e = emps[0];
+      const p = _findPuesto(e.area, e.puesto);
+      r = p && !p.orgSuelto ? { puesto:p, motivo:'padrón', persona:e.nombre }
+                            : { puesto:null, motivo:p ? 'su puesto está fuera del organigrama' : 'su puesto no está en el catálogo', persona:e.nombre };
+    }
+  }
+  cache.set(key, r);
+  return r;
+}
+
+// Votos de un puesto: cada persona activa aporta el puesto de su
+// supervisor. Gana el más votado (empate: el de nivel más alto).
+function _orgAutoVotes(p, cache, byId){
+  const votos = new Map(), detalle = new Map();
+  _orgEmpleados(p).forEach(e => {
+    const sup = String(e.supervisor||'').trim();
+    if(!sup) return;
+    const d = detalle.get(sup) || { sup, n:0, r:_orgResolveSupervisor(sup, cache) };
+    d.n++; detalle.set(sup, d);
+    if(d.r.puesto && d.r.puesto.id !== p.id) votos.set(d.r.puesto.id, (votos.get(d.r.puesto.id) || 0) + 1);
+  });
+  const ranking = [...votos.entries()].sort((a, b) =>
+    (b[1] - a[1]) || _orgSortPuestos(byId.get(a[0]), byId.get(b[0])));
+  return { detalle:[...detalle.values()].sort((a, b) => b.n - a.n),
+           candidato:ranking[0]?.[0] || null, votos:ranking[0]?.[1] || 0 };
+}
+
+// Grafo efectivo de jefes: primero los enlaces manuales, después los
+// automáticos de mayor a menor evidencia, saltando los que cerrarían un
+// ciclo. Se calcula al vuelo (refleja altas, bajas y cambios de
+// supervisor en el padrón) y se cachea hasta la siguiente mutación.
+let _orgG = null;
+function _orgInvalidate(){ _orgG = null; }
+function _orgGraph(){
+  if(_orgG) return _orgG;
+  const byId = _orgById();
+  const parent = new Map(), info = new Map(), cache = new Map();
+  const wouldCycle = (child, par) => {
+    for(let x = par, g = 0; x && g < 1000; x = parent.get(x), g++) if(x === child) return true;
+    return false;
+  };
+  PUESTOS.forEach(p => {
+    if(p.reportaA && p.reportaA !== p.id && byId.has(p.reportaA) && !wouldCycle(p.id, p.reportaA)){
+      parent.set(p.id, p.reportaA);
+      info.set(p.id, { fuente:'manual' });
+    }
+  });
+  const autos = [];
+  PUESTOS.forEach(p => {
+    if(parent.has(p.id) || (p.reportaA && byId.has(p.reportaA)) || p.orgRaiz || p.orgSuelto) return;
+    const a = _orgAutoVotes(p, cache, byId);
+    info.set(p.id, { fuente:'auto', ...a });
+    if(a.candidato) autos.push({ id:p.id, par:a.candidato, n:a.votos });
+  });
+  autos.sort((a, b) => b.n - a.n).forEach(a => {
+    if(wouldCycle(a.id, a.par)){ info.get(a.id).ciclo = true; return; }
+    parent.set(a.id, a.par);
+  });
+  return (_orgG = { byId, parent, info });
+}
+// Jefe efectivo (manual o automático) de un puesto, o null.
+function _orgParentId(p){ return _orgGraph().parent.get(p.id) || null; }
 function _orgChildrenMap(byId){
   const m = new Map();
   PUESTOS.forEach(p => {
@@ -120,6 +242,7 @@ function renderOrganigrama(host){
       <div class="srch-wrap"><span class="srch-ico">🔍</span>
         <input class="srch" id="org-q" placeholder="Buscar puesto o persona..." value="${esc(_orgQ)}" oninput="orgSearch(this.value)"></div>
       <span style="flex:1"></span>
+      <button class="btn btn-s btn-sm" onclick="orgResetAuto()" title="Quitar todas las asignaciones manuales y tomar el jefe del supervisor del padrón">🤖 Todo automático</button>
       <button class="btn btn-s btn-sm" onclick="orgExpandAll()" title="Expandir todo">⊕</button>
       <button class="btn btn-s btn-sm" onclick="orgCollapseAll()" title="Colapsar todo">⊖</button>
       <button class="btn btn-s btn-sm" onclick="orgZoomBy(-0.1)" title="Alejar">−</button>
@@ -128,7 +251,7 @@ function renderOrganigrama(host){
     </div>
     <div class="org-legend">${ORG_NIVELES.map(n =>
       `<span><i style="background:${n.fg}"></i>${esc(n.label)}</span>`).join('')}
-      <span class="org-hint">Clic en un puesto para editarlo · arrástralo sobre otro para cambiar a quién reporta</span>
+      <span class="org-hint">“Reporta a” se toma del supervisor del padrón · 📌 asignado a mano · ⚠️ supervisor no identificado · clic para editar · arrastra para reasignar</span>
     </div>
     <div class="org-canvas" id="org-canvas"></div>
     <div class="org-tray" id="org-tray" data-org-drop="__TRAY__"></div>`;
@@ -143,7 +266,8 @@ function _orgRenderCanvas(){
   const tray   = document.getElementById('org-tray');
   if(!canvas || !tray) return;
 
-  const byId   = _orgById();
+  _orgInvalidate();                             // refleja cambios del padrón/catálogo
+  const byId   = _orgGraph().byId;
   const inArea = p => _orgVista !== 'area' || _normArea(p.area) === _normArea(_orgArea);
   const scope  = PUESTOS.filter(inArea);
   const scopeIds = new Set(scope.map(p => p.id));
@@ -222,7 +346,12 @@ function _orgNodeHtml(p, o){
   const tit  = _orgTitular(p, emps);
   const plazas = +p.plazas > 0 ? `${emps.length}/${+p.plazas}` : `${emps.length}`;
   const falta  = +p.plazas > emps.length;
+  const inf  = _orgGraph().info.get(p.id);
+  const sinId = inf && inf.fuente === 'auto' && !_orgParentId(p) &&
+    inf.detalle.filter(d => !d.r.puesto && d.r.motivo !== 'vacío').map(d => d.sup);
   const meta = [
+    inf && inf.fuente === 'manual' ? '<span title="Reporta a: asignado a mano">📌</span>' : '',
+    sinId && sinId.length ? `<span title="Supervisor no identificado: ${esc(sinId.join(', '))}">⚠️</span>` : '',
     _orgVista === 'planta' ? esc(p.area) : '',
     `<span title="Personal activo del padrón${+p.plazas>0?' / plazas autorizadas':''}" ${falta?'style="color:#c62828;font-weight:700"':''}>👥 ${plazas}</span>`
   ].filter(Boolean).join(' · ');
@@ -281,42 +410,50 @@ function _orgBindDnd(host){
   };
 }
 
-// Cambia a quién reporta un puesto. parentId: id | '__ROOT__' | ''.
+// Cambia a quién reporta un puesto.
+// parentId: id | '__ROOT__' | '__AUTO__' (según supervisor) | '' (sin ubicar).
 function orgSetParent(id, parentId){
   const p = PUESTOS.find(x => x.id === id);
   if(!p) return false;
-  if(parentId && parentId !== '__ROOT__'){
+  _orgInvalidate();
+  if(parentId === '__AUTO__'){
+    delete p.reportaA; delete p.orgRaiz; delete p.orgSuelto;
+    showToast(`🤖 ${p.nombre}: “Reporta a” automático`);
+  } else if(parentId && parentId !== '__ROOT__'){
     if(parentId === id) return false;
     if(_orgDescendants(id).has(parentId)){ showToast('⚠️ No se puede: ese puesto depende de este'); return false; }
     const par = PUESTOS.find(x => x.id === parentId);
     if(!par) return false;
-    p.reportaA = parentId; delete p.orgRaiz;
+    p.reportaA = parentId; delete p.orgRaiz; delete p.orgSuelto;
     showToast(`↪️ ${p.nombre} ahora reporta a ${par.nombre}`);
   } else if(parentId === '__ROOT__'){
-    delete p.reportaA; p.orgRaiz = true;
+    delete p.reportaA; delete p.orgSuelto; p.orgRaiz = true;
     showToast(`🔝 ${p.nombre} es raíz del organigrama`);
   } else {
-    delete p.reportaA; delete p.orgRaiz;
+    _orgDetach(p);
   }
   savePuestos();
   _orgRenderCanvas();
   return true;
 }
 
-// Saca un puesto del organigrama; sus subordinados directos pasan a su
-// jefe (o quedan como raíz si no tenía), para no desarmar la rama.
+// Saca un puesto del organigrama (orgSuelto: tampoco recibe jefe ni
+// subordinados automáticos); sus subordinados directos pasan a su jefe
+// (o quedan como raíz si no tenía), para no desarmar la rama.
 function _orgDetach(p){
-  const byId = _orgById();
-  const par  = _orgParentId(p, byId);
+  const par = _orgParentId(p);
   PUESTOS.forEach(x => {
-    if(x.id === p.id || _orgParentId(x, byId) !== p.id) return;
-    if(par){ x.reportaA = par; } else { delete x.reportaA; x.orgRaiz = true; }
+    if(x.id === p.id || _orgParentId(x) !== p.id) return;
+    delete x.orgSuelto;
+    if(par){ x.reportaA = par; delete x.orgRaiz; } else { delete x.reportaA; x.orgRaiz = true; }
   });
-  delete p.reportaA; delete p.orgRaiz;
+  delete p.reportaA; delete p.orgRaiz; p.orgSuelto = true;
+  _orgInvalidate();
 }
 function orgQuitar(id){
   const p = PUESTOS.find(x => x.id === id);
   if(!p) return;
+  _orgInvalidate();
   const nKids = _orgChildrenMap(_orgById()).get(id)?.length || 0;
   if(nKids && !confirm(`¿Quitar "${p.nombre}" del organigrama?\n\nSus ${nKids} subordinado(s) directo(s) pasarán a reportar a su jefe (o quedarán como raíz).`)) return;
   _orgDetach(p);
@@ -324,6 +461,18 @@ function orgQuitar(id){
   document.getElementById('go-modal')?.classList.remove('open');
   _orgRenderCanvas();
   showToast(`📥 ${p.nombre} quedó sin ubicar`);
+}
+
+// Quita todas las capturas manuales de "Reporta a": el organigrama queda
+// armado solo con los supervisores del padrón.
+function orgResetAuto(){
+  const n = PUESTOS.filter(p => p.reportaA || p.orgRaiz || p.orgSuelto).length;
+  if(!n){ showToast('🤖 Todo el organigrama ya es automático'); return; }
+  if(!confirm(`¿Volver a “Reporta a” automático en ${n} puesto(s) con asignación manual?\n\nEl jefe de cada puesto se tomará del supervisor asignado en el padrón.`)) return;
+  PUESTOS.forEach(p => { delete p.reportaA; delete p.orgRaiz; delete p.orgSuelto; });
+  savePuestos();
+  _orgRenderCanvas();
+  showToast(`🤖 ${n} puesto(s) regresaron a automático`);
 }
 
 function orgSetVista(v){ _orgVista = v; renderGestion(); }
@@ -351,7 +500,8 @@ function orgOpenEditor(id, opts){
   _injectOrgModal();
   opts = opts || {};
   const p    = id ? PUESTOS.find(x => x.id === id) : null;
-  const byId = _orgById();
+  _orgInvalidate();
+  const byId = _orgGraph().byId;
   const emps = p ? _orgEmpleados(p) : [];
   const $ = s => document.getElementById(s);
 
@@ -374,12 +524,17 @@ function orgOpenEditor(id, opts){
   // "Reporta a": excluye al propio puesto y a sus descendientes (ciclo).
   const bloqueados = p ? _orgDescendants(p.id) : new Set();
   if(p) bloqueados.add(p.id);
-  const curPar = p ? _orgParentId(p, byId) : (opts.parentId || null);
-  const curVal = curPar || ((p ? p.orgRaiz : !opts.parentId) ? '__ROOT__' : '');
+  // Valor actual: captura manual > raíz > fuera > automático.
+  const auto   = p ? _orgAutoVotes(p, new Map(), byId) : null;
+  const autoP  = auto && auto.candidato ? byId.get(auto.candidato) : null;
+  const curVal = !p ? (opts.parentId || '__AUTO__')
+    : (p.reportaA && byId.has(p.reportaA) && !bloqueados.has(p.reportaA)) ? p.reportaA
+    : p.orgRaiz ? '__ROOT__' : p.orgSuelto ? '' : '__AUTO__';
   const byArea = {};
   PUESTOS.filter(x => !bloqueados.has(x.id)).forEach(x => (byArea[x.area||'Sin área'] = byArea[x.area||'Sin área'] || []).push(x));
   $('go-parent').innerHTML =
-    `<option value="">— Sin ubicar (fuera del organigrama) —</option>
+    `<option value="__AUTO__">🤖 Automático — ${autoP ? 'según supervisor: ' + esc(autoP.nombre) : 'sin supervisor identificable'}</option>
+     <option value="">— Sin ubicar (fuera del organigrama) —</option>
      <option value="__ROOT__">🔝 Raíz del organigrama (no reporta a nadie)</option>` +
     Object.entries(byArea).sort((a,b)=>a[0].localeCompare(b[0])).map(([area, ps]) =>
       `<optgroup label="${esc(area)}">` + ps.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x => {
@@ -399,13 +554,27 @@ function orgOpenEditor(id, opts){
 
   // Información derivada (solo lectura)
   const nEx = p ? _examIdsForPuestoId(p.id).length : 0;
+  const inf = p ? _orgGraph().info.get(p.id) : null;
+  const supHtml = !p ? '' : !auto.detalle.length
+    ? `<div class="org-sup">🤖 Sin personal con supervisor en el padrón: el jefe automático no se puede calcular.</div>`
+    : `<div class="org-sup"><strong>🤖 Supervisor asignado en el padrón:</strong>${auto.detalle.map(d => {
+        const destino = d.r.puesto
+          ? (d.r.puesto.id === p.id ? '<em>es el mismo puesto</em>' : `→ ${esc(d.r.puesto.nombre)} <span style="color:var(--text3)">(${esc(d.r.puesto.area)})</span>`)
+          : `→ ⚠️ ${esc(d.r.motivo)}${d.r.personas ? ': ' + esc(d.r.personas.join(' / ')) : ''}`;
+        return `<div>• ${esc(d.sup)} <span style="color:var(--text3)">(${d.n})</span> ${destino}</div>`;
+      }).join('')}
+      ${auto.detalle.some(d => !d.r.puesto && d.r.motivo !== 'vacío')
+        ? `<div style="color:var(--text3);margin-top:.25rem">Si el supervisor no está en el padrón, captúralo como <strong>Titular</strong> de su puesto y se enlazará solo.</div>` : ''}
+      ${inf && inf.fuente === 'manual' ? `<div style="margin-top:.25rem">📌 Este puesto tiene “Reporta a” asignado a mano.</div>` : ''}
+      ${inf && inf.ciclo ? `<div style="color:var(--red);margin-top:.25rem">⚠️ El jefe automático formaría un ciclo y se ignoró.</div>` : ''}</div>`;
   $('go-info').innerHTML = p ? `
     <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap">
       <span><strong>👥 ${emps.length}</strong> persona(s) activa(s) en el padrón${+p.plazas>0?` de <strong>${+p.plazas}</strong> plaza(s)`:''} · <strong>📝 ${nEx}</strong> examen(es)</span>
       <button class="btn btn-s btn-sm" onclick="document.getElementById('go-modal').classList.remove('open');openAsgFor('puesto','${esc(p.id)}')">🔀 Asignar exámenes</button>
     </div>
     ${emps.length ? `<div class="org-emps">${emps.map(e => `<span>${esc(e.nombre)}</span>`).join('')}</div>` : ''}
-    ${emps.length ? `<div style="color:var(--text3);font-size:.7rem;margin-top:.35rem">⚠️ Renombrar el puesto o cambiar el área no modifica el puesto de estas personas en el padrón.</div>` : ''}` : '';
+    ${emps.length ? `<div style="color:var(--text3);font-size:.7rem;margin-top:.35rem">⚠️ Renombrar el puesto o cambiar el área no modifica el puesto de estas personas en el padrón.</div>` : ''}
+    ${supHtml}` : '';
   $('go-info').style.display = p ? '' : 'none';
 
   $('go-modal-kicker').textContent = p ? `✏️ ${p.id}` : (opts.parentId ? `➕ Subordinado de ${byId.get(opts.parentId)?.nombre || ''}` : '➕ Nuevo puesto');
@@ -426,7 +595,8 @@ function orgSave(){
   const dup = _findPuesto(area, nombre);
   if(dup && dup.id !== id) return fail(`Ya existe el puesto "${nombre}" en el área "${area}".`);
   const parent = $('go-parent').value;
-  if(id && parent && parent !== '__ROOT__' && (parent === id || _orgDescendants(id).has(parent)))
+  _orgInvalidate();
+  if(id && parent && parent !== '__ROOT__' && parent !== '__AUTO__' && (parent === id || _orgDescendants(id).has(parent)))
     return fail('Un puesto no puede reportar a sí mismo ni a uno de sus subordinados.');
   const plazasRaw = $('go-plazas').value.trim();
   const plazas = plazasRaw === '' ? null : parseInt(plazasRaw, 10);
@@ -451,9 +621,10 @@ function orgSave(){
   setTxt('requisitos', $('go-req').value);
   if(plazas > 0) p.plazas = plazas; else delete p.plazas;
 
-  if(parent === '__ROOT__'){ delete p.reportaA; p.orgRaiz = true; }
-  else if(parent){ p.reportaA = parent; delete p.orgRaiz; }
-  else if(p.reportaA || p.orgRaiz){ _orgDetach(p); }
+  if(parent === '__AUTO__'){ delete p.reportaA; delete p.orgRaiz; delete p.orgSuelto; }
+  else if(parent === '__ROOT__'){ delete p.reportaA; delete p.orgSuelto; p.orgRaiz = true; }
+  else if(parent){ p.reportaA = parent; delete p.orgRaiz; delete p.orgSuelto; }
+  else if(!p.orgSuelto){ _orgDetach(p); }
 
   savePuestos();
   if(cambioClave){ try { buildAreaPuestoFilters(); } catch(_){} }
