@@ -1,0 +1,17 @@
+{
+  "name": "sistema-entrenamiento-nmc",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Control de Entrenamientos NMC — SPA estática",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.5.31",
+    "xlsx": "0.18.5"
+  }
+}
